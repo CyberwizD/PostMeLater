@@ -139,7 +139,7 @@ def docs_page() -> rx.Component:
                         ),
                         _doc_card(
                             "Connect social accounts",
-                            "Connect the social accounts in Zernio first, then refresh PostMeLater so they appear in account selectors.",
+                            "Open Social Accounts and connect each social profile through Zernio's hosted OAuth flow.",
                             "plug",
                         ),
                     ),
