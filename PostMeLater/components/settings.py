@@ -1,4 +1,5 @@
 import reflex as rx
+from PostMeLater.states.app_state import AppState
 
 
 def _info_row(label: str, value: str, icon: str) -> rx.Component:
@@ -44,16 +45,16 @@ def settings_view() -> rx.Component:
                 "user",
                 rx.el.div(
                     rx.el.img(
-                        src="https://api.dicebear.com/9.x/notionists/svg?seed=alex",
+                        src=AppState.user_avatar,
                         class_name="h-16 w-16 rounded-2xl bg-slate-100 border border-slate-200",
                     ),
                     rx.el.div(
                         rx.el.h2(
-                            "Alex Morgan",
+                            AppState.user_name,
                             class_name="text-lg font-bold text-slate-900",
                         ),
                         rx.el.p(
-                            "alex@studio.com",
+                            AppState.user_email,
                             class_name="text-sm text-slate-500 mt-0.5",
                         ),
                         rx.el.span(
