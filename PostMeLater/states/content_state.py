@@ -1,6 +1,7 @@
 import reflex as rx
 import uuid
 import random
+import json
 from datetime import datetime, timedelta
 from typing import Any, TypedDict
 import logging
@@ -95,6 +96,29 @@ PLATFORM_OPTIONS = [
     "Facebook",
     "Threads",
 ]
+CONNECT_PLATFORM_OPTIONS = [
+    "Twitter / X",
+    "LinkedIn",
+    "Instagram",
+    "Facebook",
+    "Threads",
+    "TikTok",
+    "YouTube",
+    "Pinterest",
+    "Reddit",
+]
+API_PLATFORM_LABELS = {
+    "twitter": "Twitter / X",
+    "x": "Twitter / X",
+    "linkedin": "LinkedIn",
+    "instagram": "Instagram",
+    "facebook": "Facebook",
+    "threads": "Threads",
+    "tiktok": "TikTok",
+    "youtube": "YouTube",
+    "pinterest": "Pinterest",
+    "reddit": "Reddit",
+}
 TONE_OPTIONS = [
     "Professional",
     "Casual",
@@ -115,6 +139,14 @@ WINDOW_OPTIONS = [
     "Afternoon (1–5pm)",
     "Evening (5–9pm)",
 ]
+
+
+def _platform_label(platform: str) -> str:
+    if platform in CONNECT_PLATFORM_OPTIONS:
+        return platform
+    normalized = platform.strip().lower().replace("_", "").replace("-", "")
+    normalized = normalized.replace(" ", "").replace("/", "")
+    return API_PLATFORM_LABELS.get(normalized, platform.strip().title())
 
 
 def _hook(tone: str, topic: str) -> str:
@@ -334,7 +366,7 @@ class ContentState(rx.State):
     keywords: str = ""
     goal: str = "Awareness"
     tone: str = "Professional"
-    selected_platforms: list[str] = ["Twitter / X", "LinkedIn"]
+    selected_platforms: list[str] = []
     post_body: str = ""
     is_generating: bool = False
 
@@ -351,6 +383,7 @@ class ContentState(rx.State):
     schedule_cadence: str = "One-time"
     schedule_interval_days: int = 1
 
+    connect_platform: str = "Twitter / X"
     queue_filter: str = "all"
     queue_account_filter: str = "all"
 
@@ -364,10 +397,31 @@ class ContentState(rx.State):
         self.drafts = store.list_drafts()
         self.scheduled_posts = store.list_posts()
         self.accounts = store.list_accounts()
+        self._sync_selected_platforms()
         if not self.schedule_date:
             self.schedule_date = datetime.now().strftime("%Y-%m-%d")
         if not self.schedule_account and self.accounts:
             self.schedule_account = self.accounts[0]["id"]
+
+    def _connected_platform_labels(self) -> list[str]:
+        labels: list[str] = []
+        for account in self.accounts:
+            label = _platform_label(account.get("platform", ""))
+            if label and label not in labels:
+                labels.append(label)
+        ordered = [p for p in CONNECT_PLATFORM_OPTIONS if p in labels]
+        ordered.extend([p for p in labels if p not in ordered])
+        return ordered
+
+    def _sync_selected_platforms(self):
+        available = self._connected_platform_labels()
+        self.selected_platforms = [
+            platform
+            for platform in self.selected_platforms
+            if platform in available
+        ]
+        if not self.selected_platforms and available:
+            self.selected_platforms = list(available)
 
     def _sync_accounts_from_zernio(self):
         if not zernio.configured():
@@ -386,15 +440,17 @@ class ContentState(rx.State):
                     )
                 ]
                 store.save_accounts(self.accounts)
+                self._sync_selected_platforms()
             self.api_notice = "Zernio API key is not configured."
             return
         try:
             accounts = zernio.list_accounts()
+            store.save_accounts(accounts)
+            self.accounts = store.list_accounts()
+            self._sync_selected_platforms()
+            if not self.schedule_account and self.accounts:
+                self.schedule_account = self.accounts[0]["id"]
             if accounts:
-                store.save_accounts(accounts)
-                self.accounts = store.list_accounts()
-                if not self.schedule_account and self.accounts:
-                    self.schedule_account = self.accounts[0]["id"]
                 self.api_notice = ""
             elif zernio.default_account_id() and not self.accounts:
                 fallback_platform = get_setting(
@@ -410,11 +466,41 @@ class ContentState(rx.State):
                     )
                 ]
                 store.save_accounts(self.accounts)
+                self._sync_selected_platforms()
                 self.schedule_account = self.accounts[0]["id"]
                 self.api_notice = "Using ACCOUNT_ID fallback; connected accounts were not returned."
+            else:
+                self.api_notice = "No connected Zernio accounts yet."
         except Exception:
             logging.exception("Could not sync Zernio accounts")
             self.api_notice = "Could not sync Zernio accounts."
+
+    @rx.event
+    def set_connect_platform(self, platform: str):
+        self.connect_platform = platform
+
+    @rx.event
+    def refresh_accounts(self):
+        self._sync_accounts_from_zernio()
+        if self.accounts:
+            return rx.toast("Connected accounts refreshed")
+        return rx.toast("No connected accounts found")
+
+    @rx.event
+    def connect_account(self):
+        if not zernio.configured():
+            return rx.toast("Add your Zernio API key before connecting accounts.")
+        redirect_url = get_setting(
+            "APP_BASE_URL",
+            "SITE_URL",
+            "REFLEX_PUBLIC_URL",
+            default="http://localhost:3000",
+        ).rstrip("/")
+        try:
+            auth_url = zernio.get_connect_url(self.connect_platform, redirect_url)
+        except zernio.ZernioError as exc:
+            return rx.toast(str(exc))
+        return rx.call_script(f"window.location.assign({json.dumps(auth_url)})")
 
     def _account_label(self, account_id: str) -> str:
         for account in self.accounts:
@@ -476,6 +562,10 @@ class ContentState(rx.State):
             )
             for account in self.accounts
         ]
+
+    @rx.var
+    def connected_platform_options(self) -> list[str]:
+        return self._connected_platform_labels()
 
     @rx.var
     def char_count(self) -> int:
@@ -621,6 +711,8 @@ class ContentState(rx.State):
 
     @rx.event
     def toggle_platform(self, platform: str):
+        if platform not in self._connected_platform_labels():
+            return rx.toast("Connect this platform before selecting it.")
         if platform in self.selected_platforms:
             self.selected_platforms = [
                 p for p in self.selected_platforms if p != platform
@@ -744,6 +836,7 @@ class ContentState(rx.State):
                 self.keywords = d["keywords"]
                 self.tone = d["tone"]
                 self.selected_platforms = list(d["platforms"])
+                self._sync_selected_platforms()
                 return rx.toast("Draft loaded into editor")
         return None
 
