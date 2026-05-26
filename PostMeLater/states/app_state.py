@@ -6,16 +6,22 @@ from PostMeLater.services import supabase_auth
 
 
 class AppState(rx.State):
+    session_id: str = rx.Cookie("", name="pml_session", max_age=60 * 60 * 24 * 30)
     in_app: bool = False
     active_view: str = "dashboard"
     mobile_nav_open: bool = False
     auth_error: str = ""
     auth_email: str = ""
+    user_name: str = "PostMeLater user"
+    user_email: str = ""
+    user_avatar: str = ""
 
     @rx.event
     def enter_app(self):
-        self.in_app = True
-        self.active_view = "dashboard"
+        if self._load_session():
+            self.active_view = "dashboard"
+            return
+        return self.open_signin()
 
     @rx.event
     def exit_app(self):
@@ -33,11 +39,37 @@ class AppState(rx.State):
 
     @rx.event
     def open_signin(self):
+        if self._load_session():
+            self.active_view = "dashboard"
+            return
         try:
             url = supabase_auth.google_oauth_url()
             return rx.call_script(f"window.location.assign({json.dumps(url)})")
         except Exception as exc:
             return rx.toast(str(exc))
+
+    def _apply_user(self, user: dict):
+        self.user_name = user.get("name") or "PostMeLater user"
+        self.user_email = user.get("email") or ""
+        self.user_avatar = user.get("avatar_url") or (
+            "https://api.dicebear.com/9.x/notionists/svg?seed="
+            + (self.user_email or "postmelater")
+        )
+        self.auth_email = self.user_email
+
+    def _load_session(self) -> bool:
+        user = supabase_auth.get_app_session(self.session_id)
+        if not user:
+            self.in_app = False
+            return False
+        self._apply_user(user)
+        self.auth_error = ""
+        self.in_app = True
+        return True
+
+    @rx.event
+    def load_session(self):
+        self._load_session()
 
     @rx.event
     def confirm_auth(self):
@@ -47,8 +79,10 @@ class AppState(rx.State):
             state = str(params.get("state", "") or "")
             try:
                 data = supabase_auth.exchange_oauth_code(code, state)
-                user = data.get("user") or {}
-                self.auth_email = str(user.get("email") or "")
+                self.session_id = supabase_auth.create_app_session(data)
+                user = supabase_auth.get_app_session(self.session_id)
+                if user:
+                    self._apply_user(user)
                 self.auth_error = ""
                 self.in_app = True
                 self.active_view = "dashboard"
