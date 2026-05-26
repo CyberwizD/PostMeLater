@@ -1,6 +1,5 @@
 import reflex as rx
 
-from PostMeLater.components.auth import signin_modal
 from PostMeLater.states.app_state import AppState
 
 
@@ -119,9 +118,9 @@ def docs_page() -> rx.Component:
                         "Start with the core accounts PostMeLater needs for sign-in, AI generation, and publishing.",
                         "setup",
                         _doc_card(
-                            "Supabase Magic Link",
-                            "Add Supabase URL and anon key so users can sign in with email links instead of passwords.",
-                            "mail-check",
+                            "Supabase Google OAuth",
+                            "Enable Google as a Supabase Auth provider so users sign in with their Google account.",
+                            "key-round",
                         ),
                         _doc_card(
                             "Gemini",
@@ -179,6 +178,5 @@ def docs_page() -> rx.Component:
             ),
             class_name="max-w-7xl mx-auto px-6 lg:px-8 py-12 flex gap-10",
         ),
-        signin_modal(),
         class_name="font-['Inter'] antialiased text-slate-900 min-h-screen bg-slate-50",
     )
