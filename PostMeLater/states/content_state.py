@@ -385,6 +385,7 @@ class ContentState(rx.State):
                         profile_id="",
                     )
                 ]
+                store.save_accounts(self.accounts)
             self.api_notice = "Zernio API key is not configured."
             return
         try:
@@ -408,6 +409,7 @@ class ContentState(rx.State):
                         profile_id="",
                     )
                 ]
+                store.save_accounts(self.accounts)
                 self.schedule_account = self.accounts[0]["id"]
                 self.api_notice = "Using ACCOUNT_ID fallback; connected accounts were not returned."
         except Exception:
@@ -1178,11 +1180,21 @@ class ContentState(rx.State):
     @rx.var
     def account_health(self) -> list[AccountHealth]:
         accounts = [
-            ("@studio.main", "Twitter / X", "twitter"),
-            ("@brand.official", "LinkedIn", "linkedin"),
-            ("@studio.creator", "Instagram", "instagram"),
-            ("@founder.alex", "Threads", "at-sign"),
+            (
+                self._account_label(account["id"]),
+                account["platform"].title(),
+                {
+                    "twitter": "twitter",
+                    "linkedin": "linkedin",
+                    "instagram": "instagram",
+                    "facebook": "facebook",
+                    "threads": "at-sign",
+                }.get(account["platform"], "at-sign"),
+            )
+            for account in self.accounts
         ]
+        if not accounts:
+            accounts = [("No connected accounts", "Zernio", "at-sign")]
         result: list[AccountHealth] = []
         today = datetime.now()
         week_ago = today - timedelta(days=7)
