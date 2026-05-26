@@ -1,5 +1,6 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
+from PostMeLater.states.content_state import ContentState
 
 
 def _info_row(label: str, value: str, icon: str) -> rx.Component:
@@ -77,6 +78,11 @@ def settings_view() -> rx.Component:
                 rx.el.div(
                     _info_row("Publishing", "Zernio", "send"),
                     _info_row("AI engine", "Gemini", "sparkles"),
+                    _info_row(
+                        "Connected channels",
+                        ContentState.accounts.length().to_string() + " accounts",
+                        "users",
+                    ),
                     class_name="grid grid-cols-1 gap-3",
                 ),
             ),
