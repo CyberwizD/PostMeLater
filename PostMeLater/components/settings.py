@@ -34,7 +34,7 @@ def settings_view() -> rx.Component:
         rx.el.div(
             rx.el.h1("Settings", class_name="text-2xl font-bold text-slate-900"),
             rx.el.p(
-                "Manage your profile, workspace defaults, and integrations.",
+                "Manage your profile and connected services.",
                 class_name="text-sm text-slate-500 mt-1",
             ),
             class_name="mb-6",
@@ -66,19 +66,9 @@ def settings_view() -> rx.Component:
                     class_name="flex items-center gap-4 mb-5",
                 ),
                 rx.el.div(
-                    _info_row("Access", "Google OAuth sign-in", "key-round"),
-                    _info_row("Account mode", "Private / invited use", "user-check"),
-                    class_name="grid grid-cols-1 sm:grid-cols-2 gap-3",
-                ),
-            ),
-            _section(
-                "Workspace",
-                "sliders-horizontal",
-                rx.el.div(
                     _info_row("Default timezone", "Africa/Lagos", "clock"),
-                    _info_row("Default tone", "Professional", "sparkles"),
-                    _info_row("Data storage", "PostMeLater database", "database"),
-                    class_name="grid grid-cols-1 gap-3",
+                    _info_row("Account mode", "Personal use", "user-check"),
+                    class_name="grid grid-cols-1 sm:grid-cols-2 gap-3",
                 ),
             ),
             _section(
@@ -87,7 +77,6 @@ def settings_view() -> rx.Component:
                 rx.el.div(
                     _info_row("Publishing", "Zernio", "send"),
                     _info_row("AI engine", "Gemini", "sparkles"),
-                    _info_row("Auth", "Supabase Google OAuth", "key-round"),
                     class_name="grid grid-cols-1 gap-3",
                 ),
             ),
