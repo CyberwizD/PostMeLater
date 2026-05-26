@@ -45,6 +45,10 @@ def _tone_chip(tone: str) -> rx.Component:
     )
 
 
+def _account_option(option) -> rx.Component:
+    return rx.el.option(option["label"], value=option["value"])
+
+
 def _quality_bar() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -474,14 +478,7 @@ def _schedule_panel() -> rx.Component:
                 ),
                 rx.el.div(
                     rx.el.select(
-                        rx.el.option("@studio.main", value="@studio.main"),
-                        rx.el.option(
-                            "@studio.creator", value="@studio.creator"
-                        ),
-                        rx.el.option(
-                            "@brand.official", value="@brand.official"
-                        ),
-                        rx.el.option("@founder.alex", value="@founder.alex"),
+                        rx.foreach(ContentState.account_options, _account_option),
                         value=ContentState.schedule_account,
                         on_change=ContentState.set_schedule_account,
                         class_name="w-full px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-sm appearance-none cursor-pointer focus:outline-none focus:border-indigo-300 text-slate-900",
