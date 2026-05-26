@@ -1,9 +1,9 @@
 import reflex as rx
 from PostMeLater.states.content_state import (
     ContentState,
-    PLATFORM_OPTIONS,
     TONE_OPTIONS,
 )
+from PostMeLater.states.app_state import AppState
 
 
 PLATFORM_ICONS = {
@@ -12,6 +12,10 @@ PLATFORM_ICONS = {
     "Instagram": "instagram",
     "Facebook": "facebook",
     "Threads": "at-sign",
+    "TikTok": "music",
+    "YouTube": "youtube",
+    "Pinterest": "pin",
+    "Reddit": "messages-square",
 }
 
 
@@ -301,9 +305,28 @@ def studio_view() -> rx.Component:
                         ),
                         class_name="flex items-center gap-2 mb-3",
                     ),
-                    rx.el.div(
-                        rx.foreach(PLATFORM_OPTIONS, _platform_chip),
-                        class_name="flex flex-wrap gap-2",
+                    rx.cond(
+                        ContentState.connected_platform_options.length() > 0,
+                        rx.el.div(
+                            rx.foreach(
+                                ContentState.connected_platform_options,
+                                _platform_chip,
+                            ),
+                            class_name="flex flex-wrap gap-2",
+                        ),
+                        rx.el.div(
+                            rx.el.p(
+                                "Connect a social account before choosing platforms.",
+                                class_name="text-sm font-medium text-slate-700",
+                            ),
+                            rx.el.button(
+                                rx.icon("plug", class_name="h-4 w-4"),
+                                "Open Social Accounts",
+                                on_click=lambda: AppState.set_view("accounts"),
+                                class_name="mt-3 flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 transition-colors",
+                            ),
+                            class_name="p-4 bg-slate-50 border border-slate-200 rounded-xl",
+                        ),
                     ),
                     class_name="bg-white border border-slate-200 rounded-2xl p-5 mt-4",
                 ),
