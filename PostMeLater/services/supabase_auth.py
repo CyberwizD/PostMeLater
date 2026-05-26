@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import json
 import secrets
 import sqlite3
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from urllib.parse import urlencode
@@ -50,13 +52,23 @@ def _connect() -> sqlite3.Connection:
 
 def _init_db() -> None:
     with _connect() as conn:
-        conn.execute(
+        conn.executescript(
             """
             create table if not exists oauth_flows (
                 state text primary key,
                 code_verifier text not null,
                 created_at text not null
-            )
+            );
+
+            create table if not exists auth_sessions (
+                id text primary key,
+                access_token text not null,
+                refresh_token text not null,
+                expires_at integer not null default 0,
+                user_json text not null default '{}',
+                created_at text not null,
+                updated_at text not null
+            );
             """
         )
 
@@ -150,3 +162,122 @@ def exchange_oauth_code(code: str, state: str) -> dict:
         )
         raise SupabaseAuthError(message)
     return response.json()
+
+
+def _session_expiry(data: dict) -> int:
+    expires_at = data.get("expires_at")
+    if expires_at:
+        return int(expires_at)
+    return int(time.time()) + int(data.get("expires_in") or 3600)
+
+
+def _user_profile(user: dict) -> dict:
+    metadata = user.get("user_metadata") or {}
+    return {
+        "id": str(user.get("id") or ""),
+        "email": str(user.get("email") or ""),
+        "name": str(
+            metadata.get("full_name")
+            or metadata.get("name")
+            or user.get("email")
+            or "PostMeLater user"
+        ),
+        "avatar_url": str(metadata.get("avatar_url") or metadata.get("picture") or ""),
+    }
+
+
+def create_app_session(auth_data: dict) -> str:
+    """Persist a Supabase session and return an opaque app session id."""
+    _init_db()
+    session_id = secrets.token_urlsafe(32)
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            insert into auth_sessions
+            (id, access_token, refresh_token, expires_at, user_json, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                session_id,
+                str(auth_data.get("access_token") or ""),
+                str(auth_data.get("refresh_token") or ""),
+                _session_expiry(auth_data),
+                json.dumps(auth_data.get("user") or {}),
+                now,
+                now,
+            ),
+        )
+    return session_id
+
+
+def _refresh_auth_session(session_id: str, refresh_token: str) -> dict | None:
+    supabase_url = get_setting("SUPABASE_URL").rstrip("/")
+    anon_key = get_setting("SUPABASE_ANON_KEY")
+    if not supabase_url or not anon_key or not refresh_token:
+        return None
+    try:
+        response = httpx.post(
+            f"{supabase_url}/auth/v1/token?grant_type=refresh_token",
+            headers={
+                "apikey": anon_key,
+                "Authorization": f"Bearer {anon_key}",
+                "Content-Type": "application/json",
+            },
+            json={"refresh_token": refresh_token},
+            timeout=30,
+        )
+    except httpx.HTTPError:
+        return None
+    if response.status_code >= 400:
+        return None
+    data = response.json()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            update auth_sessions
+            set access_token = ?, refresh_token = ?, expires_at = ?, user_json = ?, updated_at = ?
+            where id = ?
+            """,
+            (
+                str(data.get("access_token") or ""),
+                str(data.get("refresh_token") or refresh_token),
+                _session_expiry(data),
+                json.dumps(data.get("user") or {}),
+                now,
+                session_id,
+            ),
+        )
+    return data.get("user") or {}
+
+
+def get_app_session(session_id: str) -> dict | None:
+    """Return a normalized user profile for an app session."""
+    if not session_id:
+        return None
+    _init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "select * from auth_sessions where id = ?",
+            (session_id,),
+        ).fetchone()
+    if row is None:
+        return None
+
+    user = json.loads(row["user_json"] or "{}")
+    if int(row["expires_at"] or 0) <= int(time.time()) + 60:
+        refreshed_user = _refresh_auth_session(session_id, row["refresh_token"])
+        if refreshed_user is None:
+            delete_app_session(session_id)
+            return None
+        user = refreshed_user
+    return _user_profile(user)
+
+
+def delete_app_session(session_id: str) -> None:
+    if not session_id:
+        return
+    _init_db()
+    with _connect() as conn:
+        conn.execute("delete from auth_sessions where id = ?", (session_id,))
