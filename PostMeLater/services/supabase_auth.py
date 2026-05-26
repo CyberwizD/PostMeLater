@@ -8,7 +8,7 @@ import json
 import secrets
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -54,12 +54,6 @@ def _init_db() -> None:
     with _connect() as conn:
         conn.executescript(
             """
-            create table if not exists oauth_flows (
-                state text primary key,
-                code_verifier text not null,
-                created_at text not null
-            );
-
             create table if not exists auth_sessions (
                 id text primary key,
                 access_token text not null,
@@ -73,58 +67,32 @@ def _init_db() -> None:
         )
 
 
-def _save_oauth_flow(state: str, code_verifier: str) -> None:
-    _init_db()
-    cutoff = (datetime.utcnow() - timedelta(minutes=15)).isoformat()
-    with _connect() as conn:
-        conn.execute("delete from oauth_flows where created_at < ?", (cutoff,))
-        conn.execute(
-            """
-            insert or replace into oauth_flows (state, code_verifier, created_at)
-            values (?, ?, ?)
-            """,
-            (state, code_verifier, datetime.utcnow().isoformat()),
-        )
-
-
-def _pop_oauth_flow(state: str) -> str:
-    _init_db()
-    with _connect() as conn:
-        row = conn.execute(
-            "select code_verifier from oauth_flows where state = ?",
-            (state,),
-        ).fetchone()
-        conn.execute("delete from oauth_flows where state = ?", (state,))
-    if row is None:
-        raise SupabaseAuthError("The Google sign-in session expired. Try again.")
-    return str(row["code_verifier"])
-
-
 def _code_challenge(code_verifier: str) -> str:
     digest = hashlib.sha256(code_verifier.encode("ascii")).digest()
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
-def google_oauth_url() -> str:
+def create_pkce_verifier() -> str:
+    """Create a PKCE code verifier for the browser auth flow."""
+    return secrets.token_urlsafe(64)
+
+
+def google_oauth_url(code_verifier: str) -> str:
     """Create a Supabase Google OAuth authorization URL."""
     supabase_url = get_setting("SUPABASE_URL").rstrip("/")
     if not supabase_url:
         raise SupabaseAuthError("Supabase is not configured. Add SUPABASE_URL.")
-    code_verifier = secrets.token_urlsafe(64)
-    state = secrets.token_urlsafe(32)
-    _save_oauth_flow(state, code_verifier)
     params = {
         "provider": "google",
         "redirect_to": _auth_callback_url(),
         "flow_type": "pkce",
         "code_challenge": _code_challenge(code_verifier),
         "code_challenge_method": "S256",
-        "state": state,
     }
     return f"{supabase_url}/auth/v1/authorize?{urlencode(params)}"
 
 
-def exchange_oauth_code(code: str, state: str) -> dict:
+def exchange_oauth_code(code: str, code_verifier: str) -> dict:
     """Exchange a Supabase OAuth authorization code for a session."""
     supabase_url = get_setting("SUPABASE_URL").rstrip("/")
     anon_key = get_setting("SUPABASE_ANON_KEY")
@@ -134,7 +102,8 @@ def exchange_oauth_code(code: str, state: str) -> dict:
         )
     if not code:
         raise SupabaseAuthError("Missing Google sign-in code.")
-    code_verifier = _pop_oauth_flow(state)
+    if not code_verifier:
+        raise SupabaseAuthError("The Google sign-in session expired. Try again.")
     try:
         response = httpx.post(
             f"{supabase_url}/auth/v1/token?grant_type=pkce",
