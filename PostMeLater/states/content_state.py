@@ -2,8 +2,11 @@ import reflex as rx
 import uuid
 import random
 from datetime import datetime, timedelta
-from typing import TypedDict
+from typing import Any, TypedDict
 import logging
+
+from PostMeLater.services import gemini, store, zernio
+from PostMeLater.services.config import get_setting
 
 
 class Draft(TypedDict):
@@ -19,9 +22,11 @@ class Draft(TypedDict):
 
 class ScheduledPost(TypedDict):
     id: str
+    zernio_post_id: str
     body: str
     platforms: list[str]
     account: str
+    account_id: str
     scheduled_at: str
     scheduled_date: str
     scheduled_time: str
@@ -29,6 +34,20 @@ class ScheduledPost(TypedDict):
     status: str
     tone: str
     engagement: int
+    error: str
+
+
+class ConnectedAccount(TypedDict):
+    id: str
+    platform: str
+    username: str
+    display_name: str
+    profile_id: str
+
+
+class AccountOption(TypedDict):
+    value: str
+    label: str
 
 
 class ActivityEvent(TypedDict):
@@ -87,10 +106,7 @@ TONE_OPTIONS = [
     "Educational",
 ]
 ACCOUNT_OPTIONS = [
-    "@studio.main",
-    "@studio.creator",
-    "@brand.official",
-    "@founder.alex",
+    "Default account",
 ]
 CADENCE_OPTIONS = ["One-time", "Daily", "Weekly", "Bi-weekly", "Monthly"]
 WINDOW_OPTIONS = [
@@ -253,9 +269,11 @@ def _seed_scheduled_posts() -> list[ScheduledPost]:
         posts.append(
             ScheduledPost(
                 id=str(uuid.uuid4()),
+                zernio_post_id="",
                 body=body,
                 platforms=list(platforms),
                 account=account,
+                account_id="",
                 scheduled_at=dt.strftime("%Y-%m-%dT%H:%M:00"),
                 scheduled_date=dt.strftime("%b %d, %Y"),
                 scheduled_time=dt.strftime("%I:%M %p"),
@@ -263,6 +281,7 @@ def _seed_scheduled_posts() -> list[ScheduledPost]:
                 status=status,
                 tone=tone,
                 engagement=eng,
+                error="",
             )
         )
     return posts
@@ -321,11 +340,13 @@ class ContentState(rx.State):
 
     drafts: list[Draft] = []
     scheduled_posts: list[ScheduledPost] = []
+    accounts: list[ConnectedAccount] = []
     seeded: bool = False
+    api_notice: str = ""
 
     schedule_date: str = ""
     schedule_time: str = "09:00"
-    schedule_account: str = "@studio.main"
+    schedule_account: str = ""
     schedule_window: str = "Morning (8–11am)"
     schedule_cadence: str = "One-time"
     schedule_interval_days: int = 1
@@ -337,7 +358,122 @@ class ContentState(rx.State):
     edit_post_id: str = ""
     edit_date: str = ""
     edit_time: str = ""
-    edit_account: str = "@studio.main"
+    edit_account: str = ""
+
+    def _reload_from_store(self):
+        self.drafts = store.list_drafts()
+        self.scheduled_posts = store.list_posts()
+        self.accounts = store.list_accounts()
+        if not self.schedule_date:
+            self.schedule_date = datetime.now().strftime("%Y-%m-%d")
+        if not self.schedule_account and self.accounts:
+            self.schedule_account = self.accounts[0]["id"]
+
+    def _sync_accounts_from_zernio(self):
+        if not zernio.configured():
+            fallback_account_id = zernio.default_account_id()
+            if fallback_account_id and not self.accounts:
+                fallback_platform = get_setting(
+                    "ZERNIO_PLATFORM", "LATE_PLATFORM", default="twitter"
+                )
+                self.accounts = [
+                    ConnectedAccount(
+                        id=fallback_account_id,
+                        platform=fallback_platform,
+                        username="",
+                        display_name=f"{fallback_platform.title()} account",
+                        profile_id="",
+                    )
+                ]
+            self.api_notice = "Zernio API key is not configured."
+            return
+        try:
+            accounts = zernio.list_accounts()
+            if accounts:
+                store.save_accounts(accounts)
+                self.accounts = store.list_accounts()
+                if not self.schedule_account and self.accounts:
+                    self.schedule_account = self.accounts[0]["id"]
+                self.api_notice = ""
+            elif zernio.default_account_id() and not self.accounts:
+                fallback_platform = get_setting(
+                    "ZERNIO_PLATFORM", "LATE_PLATFORM", default="twitter"
+                )
+                self.accounts = [
+                    ConnectedAccount(
+                        id=zernio.default_account_id(),
+                        platform=fallback_platform,
+                        username="",
+                        display_name=f"{fallback_platform.title()} account",
+                        profile_id="",
+                    )
+                ]
+                self.schedule_account = self.accounts[0]["id"]
+                self.api_notice = "Using ACCOUNT_ID fallback; connected accounts were not returned."
+        except Exception:
+            logging.exception("Could not sync Zernio accounts")
+            self.api_notice = "Could not sync Zernio accounts."
+
+    def _account_label(self, account_id: str) -> str:
+        for account in self.accounts:
+            if account["id"] == account_id:
+                name = (
+                    account.get("username")
+                    or account.get("display_name")
+                    or account["id"]
+                )
+                return f"{name} ({account['platform']})"
+        return account_id or "Default account"
+
+    def _targets_for_selected_platforms(self) -> tuple[list[dict[str, str]], list[str]]:
+        targets: list[dict[str, str]] = []
+        missing: list[str] = []
+        preferred = next(
+            (a for a in self.accounts if a["id"] == self.schedule_account),
+            None,
+        )
+        for platform_label in self.selected_platforms:
+            platform = zernio.platform_api_name(platform_label)
+            match = None
+            if preferred and preferred["platform"] == platform:
+                match = preferred
+            if match is None:
+                match = next(
+                    (a for a in self.accounts if a["platform"] == platform),
+                    None,
+                )
+            if match is None and zernio.default_account_id() and not self.accounts:
+                match = ConnectedAccount(
+                    id=zernio.default_account_id(),
+                    platform=platform,
+                    username="",
+                    display_name="Configured account",
+                    profile_id="",
+                )
+            if match is None:
+                missing.append(platform_label)
+                continue
+            targets.append({"platform": platform, "accountId": match["id"]})
+        return targets, missing
+
+    def _save_and_reload_post(self, post: ScheduledPost):
+        store.save_post(post)
+        self._reload_from_store()
+
+    @rx.var
+    def account_options(self) -> list[AccountOption]:
+        if not self.accounts:
+            fallback = zernio.default_account_id()
+            if fallback:
+                return [AccountOption(value=fallback, label="Configured account")]
+            return [AccountOption(value="", label="No connected accounts")]
+        return [
+            AccountOption(
+                value=account["id"],
+                label=self._account_label(account["id"]),
+            )
+            for account in self.accounts
+        ]
 
     @rx.var
     def char_count(self) -> int:
@@ -415,7 +551,10 @@ class ContentState(rx.State):
             items = [p for p in items if p["status"] == self.queue_filter]
         if self.queue_account_filter != "all":
             items = [
-                p for p in items if p["account"] == self.queue_account_filter
+                p
+                for p in items
+                if p.get("account_id", "") == self.queue_account_filter
+                or p["account"] == self.queue_account_filter
             ]
         return sorted(items, key=lambda p: p["scheduled_at"])
 
@@ -491,14 +630,28 @@ class ContentState(rx.State):
     def generate_post(self):
         self.is_generating = True
         yield
-        hook = _hook(self.tone, self.topic)
-        body = _body(self.tone, self.audience, self.keywords)
-        cta = _cta(self.tone)
-        tags = _hashtags(self.keywords, self.selected_platforms)
-        parts = [hook, "", body, "", cta]
-        if tags:
-            parts.extend(["", tags])
-        self.post_body = "\n".join(parts).strip()
+        try:
+            prompt = gemini.build_post_prompt(
+                topic=self.topic,
+                audience=self.audience,
+                keywords=self.keywords,
+                goal=self.goal,
+                tone=self.tone,
+                platforms=self.selected_platforms,
+            )
+            self.post_body = gemini.generate_text(prompt)
+        except Exception:
+            logging.exception("Gemini generation failed")
+            hook = _hook(self.tone, self.topic)
+            body = _body(self.tone, self.audience, self.keywords)
+            cta = _cta(self.tone)
+            tags = _hashtags(self.keywords, self.selected_platforms)
+            parts = [hook, "", body, "", cta]
+            if tags:
+                parts.extend(["", tags])
+            self.post_body = "\n".join(parts).strip()
+            self.is_generating = False
+            return rx.toast("Gemini failed, so I used a local draft fallback.")
         self.is_generating = False
 
     @rx.event
@@ -507,14 +660,24 @@ class ContentState(rx.State):
             return
         self.is_generating = True
         yield
-        sentences = [
-            s.strip()
-            for s in self.post_body.replace("\n", " ").split(".")
-            if s.strip()
-        ]
-        if len(sentences) > 2:
-            sentences = sentences[:2]
-        self.post_body = ". ".join(sentences) + "."
+        try:
+            prompt = gemini.build_rewrite_prompt(
+                self.post_body,
+                "Rewrite this social post to be shorter, sharper, and ready to publish. Keep the meaning and preserve useful hashtags.",
+            )
+            self.post_body = gemini.generate_text(prompt)
+        except Exception:
+            logging.exception("Gemini shorten failed")
+            sentences = [
+                s.strip()
+                for s in self.post_body.replace("\n", " ").split(".")
+                if s.strip()
+            ]
+            if len(sentences) > 2:
+                sentences = sentences[:2]
+            self.post_body = ". ".join(sentences) + "."
+            self.is_generating = False
+            return rx.toast("Gemini failed, so I shortened it locally.")
         self.is_generating = False
 
     @rx.event
@@ -530,8 +693,19 @@ class ContentState(rx.State):
     def add_cta(self):
         if self.has_cta:
             return
-        cta = _cta(self.tone)
-        self.post_body = f"{self.post_body}\n\n{cta}".strip()
+        if not self.post_body.strip():
+            return
+        try:
+            prompt = gemini.build_rewrite_prompt(
+                self.post_body,
+                f"Add one natural call to action in a {self.tone.lower()} tone. Return only the finished post.",
+            )
+            self.post_body = gemini.generate_text(prompt)
+        except Exception:
+            logging.exception("Gemini CTA failed")
+            cta = _cta(self.tone)
+            self.post_body = f"{self.post_body}\n\n{cta}".strip()
+            return rx.toast("Gemini failed, so I added a local CTA.")
 
     @rx.event
     def clear_studio(self):
@@ -554,7 +728,8 @@ class ContentState(rx.State):
             "platforms": list(self.selected_platforms),
             "created_at": datetime.now().strftime("%b %d, %Y · %I:%M %p"),
         }
-        self.drafts = [draft] + self.drafts
+        store.save_draft(draft)
+        self._reload_from_store()
         return rx.toast("Draft saved")
 
     @rx.event
@@ -572,7 +747,8 @@ class ContentState(rx.State):
 
     @rx.event
     def delete_draft(self, draft_id: str):
-        self.drafts = [d for d in self.drafts if d["id"] != draft_id]
+        store.delete_draft(draft_id)
+        self._reload_from_store()
 
     @rx.event
     def set_schedule_date(self, v: str):
@@ -603,7 +779,13 @@ class ContentState(rx.State):
             self.schedule_interval_days = 1
 
     def _make_post(
-        self, body: str, date_str: str, time_str: str
+        self,
+        body: str,
+        date_str: str,
+        time_str: str,
+        zernio_post_id: str = "",
+        status: str = "scheduled",
+        error: str = "",
     ) -> ScheduledPost:
         scheduled_at = f"{date_str}T{time_str}:00"
         try:
@@ -614,18 +796,24 @@ class ContentState(rx.State):
             logging.exception("Unexpected error")
             display_date = date_str
             display_time = time_str
+        account_id = self.schedule_account or (
+            self.accounts[0]["id"] if self.accounts else ""
+        )
         return ScheduledPost(
             id=str(uuid.uuid4()),
+            zernio_post_id=zernio_post_id,
             body=body,
             platforms=list(self.selected_platforms),
-            account=self.schedule_account,
+            account=self._account_label(account_id),
+            account_id=account_id,
             scheduled_at=scheduled_at,
             scheduled_date=display_date,
             scheduled_time=display_time,
             cadence=self.schedule_cadence,
-            status="scheduled",
+            status=status,
             tone=self.tone,
             engagement=0,
+            error=error,
         )
 
     @rx.event
@@ -636,6 +824,13 @@ class ContentState(rx.State):
             return rx.toast("Pick at least one platform.")
         if not self.schedule_date:
             return rx.toast("Pick a date to schedule.")
+        targets, missing = self._targets_for_selected_platforms()
+        if missing:
+            return rx.toast(
+                f"Connect an account for: {', '.join(missing)}"
+            )
+        if not targets:
+            return rx.toast("Connect a Zernio account before scheduling.")
         body = self.post_body
         new_posts: list[ScheduledPost] = []
         try:
@@ -655,45 +850,102 @@ class ContentState(rx.State):
         offsets = cadence_map.get(self.schedule_cadence, [0])
         for off in offsets:
             dt = base_dt + timedelta(days=off)
-            new_posts.append(
-                self._make_post(
-                    body,
-                    dt.strftime("%Y-%m-%d"),
-                    dt.strftime("%H:%M"),
-                )
+            zernio_post_id = ""
+            status = "scheduled"
+            error = ""
+            try:
+                if zernio.configured():
+                    response = zernio.create_post(
+                        content=body,
+                        scheduled_for=dt.isoformat(),
+                        platforms=targets,
+                    )
+                    zernio_post_id = str(
+                        response.get("_id")
+                        or response.get("id")
+                        or response.get("postId")
+                        or ""
+                    )
+            except Exception as exc:
+                logging.exception("Zernio schedule failed")
+                status = "failed"
+                error = str(exc)
+            post = self._make_post(
+                body,
+                dt.strftime("%Y-%m-%d"),
+                dt.strftime("%H:%M"),
+                zernio_post_id=zernio_post_id,
+                status=status,
+                error=error,
             )
-        self.scheduled_posts = self.scheduled_posts + new_posts
+            store.save_post(post)
+            new_posts.append(post)
+        self._reload_from_store()
         self.post_body = ""
+        failed = sum(1 for post in new_posts if post["status"] == "failed")
+        if failed:
+            return rx.toast(
+                f"{failed} post(s) could not be scheduled in Zernio. Check the queue."
+            )
         return rx.toast(
-            f"Scheduled {len(new_posts)} post(s) to {self.schedule_account}"
+            f"Scheduled {len(new_posts)} post(s) to {self._account_label(self.schedule_account)}"
         )
 
     @rx.event
     def cancel_post(self, post_id: str):
-        self.scheduled_posts = [
-            p for p in self.scheduled_posts if p["id"] != post_id
-        ]
+        post = next((p for p in self.scheduled_posts if p["id"] == post_id), None)
+        if post is None:
+            return
+        zernio_post_id = post.get("zernio_post_id", "")
+        if zernio_post_id:
+            try:
+                zernio.delete_post(zernio_post_id)
+            except Exception:
+                logging.exception("Zernio delete failed")
+                return rx.toast("Could not delete this post in Zernio.")
+        store.delete_post(post_id)
+        self._reload_from_store()
+        return rx.toast("Post removed")
 
     @rx.event
     def retry_post(self, post_id: str):
-        self.scheduled_posts = [
-            {**p, "status": "scheduled"} if p["id"] == post_id else p
-            for p in self.scheduled_posts
-        ]
+        updated = False
+        for post in self.scheduled_posts:
+            if post["id"] != post_id:
+                continue
+            try:
+                if post.get("zernio_post_id", ""):
+                    zernio.retry_post(post["zernio_post_id"])
+                store.save_post(
+                    {
+                        **post,
+                        "status": "scheduled",
+                        "error": "",
+                    }
+                )
+                updated = True
+            except Exception:
+                logging.exception("Zernio retry failed")
+                return rx.toast("Could not retry this post in Zernio.")
+        if updated:
+            self._reload_from_store()
+            return rx.toast("Post retry queued")
 
     @rx.event
     def mark_posted(self, post_id: str):
-        self.scheduled_posts = [
-            {**p, "status": "posted"} if p["id"] == post_id else p
-            for p in self.scheduled_posts
-        ]
+        for post in self.scheduled_posts:
+            if post["id"] == post_id:
+                store.save_post({**post, "status": "posted", "error": ""})
+                self._reload_from_store()
+                return
 
     @rx.event
     def mark_failed(self, post_id: str):
-        self.scheduled_posts = [
-            {**p, "status": "failed"} if p["id"] == post_id else p
-            for p in self.scheduled_posts
-        ]
+        for post in self.scheduled_posts:
+            if post["id"] == post_id:
+                store.save_post({**post, "status": "failed"})
+                self._reload_from_store()
+                return
 
     @rx.event
     def set_queue_filter(self, v: str):
@@ -707,8 +959,10 @@ class ContentState(rx.State):
     def init_seed(self):
         if self.seeded:
             return
-        self.scheduled_posts = _seed_scheduled_posts()
-        self.drafts = _seed_drafts()
+        store.init_db()
+        self._reload_from_store()
+        self._sync_accounts_from_zernio()
+        self._reload_from_store()
         self.seeded = True
 
     @rx.event
@@ -723,7 +977,7 @@ class ContentState(rx.State):
                     logging.exception("Edit parse error")
                     self.edit_date = ""
                     self.edit_time = "09:00"
-                self.edit_account = p["account"]
+                self.edit_account = p.get("account_id", "") or p["account"]
                 self.edit_post_id = post_id
                 self.edit_modal_open = True
                 return
@@ -756,22 +1010,34 @@ class ContentState(rx.State):
         except Exception:
             logging.exception("Bad datetime in edit")
             return rx.toast("Invalid date or time.")
-        new_posts: list[ScheduledPost] = []
-        for p in self.scheduled_posts:
-            if p["id"] == self.edit_post_id:
-                new_posts.append(
-                    {
-                        **p,
-                        "scheduled_at": dt.strftime("%Y-%m-%dT%H:%M:00"),
-                        "scheduled_date": dt.strftime("%b %d, %Y"),
-                        "scheduled_time": dt.strftime("%I:%M %p"),
-                        "account": self.edit_account,
-                        "status": "scheduled",
-                    }
+        post = next(
+            (p for p in self.scheduled_posts if p["id"] == self.edit_post_id),
+            None,
+        )
+        if post is None:
+            return rx.toast("Post not found.")
+        if post.get("zernio_post_id", ""):
+            try:
+                zernio.update_post(
+                    post_id=post["zernio_post_id"],
+                    scheduled_for=dt.isoformat(),
                 )
-            else:
-                new_posts.append(p)
-        self.scheduled_posts = new_posts
+            except Exception:
+                logging.exception("Zernio edit failed")
+                return rx.toast("Could not update this post in Zernio.")
+        store.save_post(
+            {
+                **post,
+                "scheduled_at": dt.strftime("%Y-%m-%dT%H:%M:00"),
+                "scheduled_date": dt.strftime("%b %d, %Y"),
+                "scheduled_time": dt.strftime("%I:%M %p"),
+                "account": self._account_label(self.edit_account),
+                "account_id": self.edit_account,
+                "status": "scheduled",
+                "error": "",
+            }
+        )
+        self._reload_from_store()
         self.edit_modal_open = False
         self.edit_post_id = ""
         return rx.toast("Schedule updated")
