@@ -26,7 +26,11 @@ app = rx.App(
         ),
     ],
 )
-app.add_page(index, route="/", on_load=ContentState.init_seed)
+app.add_page(
+    index,
+    route="/",
+    on_load=[AppState.load_session, ContentState.init_seed],
+)
 app.add_page(docs_page, route="/docs")
 app.add_page(
     auth_confirm_page,
