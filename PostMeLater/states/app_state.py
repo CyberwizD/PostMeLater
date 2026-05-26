@@ -7,6 +7,9 @@ from PostMeLater.services import supabase_auth
 
 class AppState(rx.State):
     session_id: str = rx.Cookie("", name="pml_session", max_age=60 * 60 * 24 * 30)
+    oauth_code_verifier: str = rx.Cookie(
+        "", name="pml_oauth_verifier", max_age=60 * 15
+    )
     in_app: bool = False
     active_view: str = "dashboard"
     mobile_nav_open: bool = False
@@ -43,8 +46,20 @@ class AppState(rx.State):
             self.active_view = "dashboard"
             return
         try:
-            url = supabase_auth.google_oauth_url()
-            return rx.call_script(f"window.location.assign({json.dumps(url)})")
+            code_verifier = supabase_auth.create_pkce_verifier()
+            self.oauth_code_verifier = code_verifier
+            url = supabase_auth.google_oauth_url(code_verifier)
+            cookie = (
+                f"pml_oauth_verifier={code_verifier}; "
+                "Max-Age=900; Path=/; SameSite=Lax"
+            )
+            return rx.call_script(
+                "document.cookie = "
+                + json.dumps(cookie)
+                + "; window.location.assign("
+                + json.dumps(url)
+                + ")"
+            )
         except Exception as exc:
             return rx.toast(str(exc))
 
@@ -76,10 +91,12 @@ class AppState(rx.State):
         params = self.router.page.params
         code = str(params.get("code", "") or "")
         if code:
-            state = str(params.get("state", "") or "")
             try:
-                data = supabase_auth.exchange_oauth_code(code, state)
+                data = supabase_auth.exchange_oauth_code(
+                    code, self.oauth_code_verifier
+                )
                 self.session_id = supabase_auth.create_app_session(data)
+                self.oauth_code_verifier = ""
                 user = supabase_auth.get_app_session(self.session_id)
                 if user:
                     self._apply_user(user)
