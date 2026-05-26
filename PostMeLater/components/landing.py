@@ -1,6 +1,5 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
-from PostMeLater.components.auth import signin_modal
 
 
 def _nav_link(label: str, href: str) -> rx.Component:
@@ -374,6 +373,5 @@ def landing_page() -> rx.Component:
             ),
             class_name="border-t border-slate-200 bg-white",
         ),
-        signin_modal(),
         class_name="min-h-screen bg-slate-50",
     )
