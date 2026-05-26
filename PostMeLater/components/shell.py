@@ -1,6 +1,7 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
 from PostMeLater.components.views import dashboard_view, studio_view, scheduling_view
+from PostMeLater.components.accounts import accounts_view
 from PostMeLater.components.settings import settings_view
 
 
@@ -8,6 +9,7 @@ NAV_ITEMS = [
     ("dashboard", "Dashboard", "layout-dashboard"),
     ("studio", "AI Content Studio", "sparkles"),
     ("scheduling", "Scheduling Center", "calendar-clock"),
+    ("accounts", "Social Accounts", "plug"),
     ("settings", "Settings", "settings"),
 ]
 
@@ -53,6 +55,7 @@ def _sidebar() -> rx.Component:
                 _nav_button(
                     "scheduling", "Scheduling Center", "calendar-clock"
                 ),
+                _nav_button("accounts", "Social Accounts", "plug"),
                 class_name="flex flex-col gap-1",
             ),
             rx.el.div(
@@ -168,6 +171,7 @@ def _mobile_drawer() -> rx.Component:
                     _nav_button(
                         "scheduling", "Scheduling Center", "calendar-clock"
                     ),
+                    _nav_button("accounts", "Social Accounts", "plug"),
                     _nav_button("settings", "Settings", "settings"),
                     rx.el.div(class_name="h-px bg-slate-200 my-3"),
                     rx.el.button(
@@ -199,6 +203,7 @@ def app_shell() -> rx.Component:
                         ("dashboard", dashboard_view()),
                         ("studio", studio_view()),
                         ("scheduling", scheduling_view()),
+                        ("accounts", accounts_view()),
                         ("settings", settings_view()),
                         dashboard_view(),
                     ),
