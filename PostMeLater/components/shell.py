@@ -73,16 +73,16 @@ def _sidebar() -> rx.Component:
         rx.el.div(
             rx.el.div(
                 rx.el.img(
-                    src="https://api.dicebear.com/9.x/notionists/svg?seed=alex",
+                    src=AppState.user_avatar,
                     class_name="h-9 w-9 rounded-full bg-slate-100",
                 ),
                 rx.el.div(
                     rx.el.p(
-                        "Alex Morgan",
+                        AppState.user_name,
                         class_name="text-sm font-semibold text-slate-900 truncate",
                     ),
                     rx.el.p(
-                        "alex@studio.com",
+                        AppState.user_email,
                         class_name="text-xs text-slate-500 truncate",
                     ),
                     class_name="flex-1 min-w-0",
