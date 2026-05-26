@@ -203,6 +203,7 @@ def save_accounts(accounts: list[dict[str, Any]]) -> None:
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
+        conn.execute("delete from accounts")
         for account in accounts:
             account_id = str(
                 account.get("_id")
@@ -212,6 +213,16 @@ def save_accounts(accounts: list[dict[str, Any]]) -> None:
             )
             if not account_id:
                 continue
+            profile = account.get("profileId") or account.get("profile_id") or ""
+            if isinstance(profile, dict):
+                profile = profile.get("_id") or profile.get("id") or ""
+            username = str(account.get("username") or account.get("handle") or "")
+            display_name = str(
+                account.get("displayName")
+                or account.get("name")
+                or username
+                or f"{str(account.get('platform') or 'Social').title()} account"
+            )
             conn.execute(
                 """
                 insert or replace into accounts
@@ -221,9 +232,9 @@ def save_accounts(accounts: list[dict[str, Any]]) -> None:
                 (
                     account_id,
                     str(account.get("platform") or ""),
-                    str(account.get("username") or account.get("handle") or ""),
-                    str(account.get("displayName") or account.get("name") or ""),
-                    str(account.get("profileId") or account.get("profile_id") or ""),
+                    username,
+                    display_name,
+                    str(profile),
                     json.dumps(account),
                     now,
                 ),
@@ -246,4 +257,3 @@ def list_accounts() -> list[dict[str, Any]]:
         }
         for row in rows
     ]
-
