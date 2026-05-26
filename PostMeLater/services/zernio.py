@@ -45,6 +45,11 @@ def default_account_id() -> str:
     return get_setting("ZERNIO_ACCOUNT_ID", "ACCOUNT_ID")
 
 
+def default_profile_id() -> str:
+    """Return the optional Zernio profile id from the environment."""
+    return get_setting("ZERNIO_PROFILE_ID", "PROFILE_ID")
+
+
 def configured() -> bool:
     """Return whether Zernio calls can be attempted."""
     return bool(api_key())
@@ -100,6 +105,65 @@ def list_accounts() -> list[dict[str, Any]]:
     data = _request("GET", "/accounts")
     accounts = data.get("accounts") or data.get("data") or []
     return list(accounts) if isinstance(accounts, list) else []
+
+
+def list_profiles() -> list[dict[str, Any]]:
+    """List Zernio profiles available to the API key."""
+    data = _request("GET", "/profiles", params={"includeOverLimit": "true"})
+    profiles = data.get("profiles") or data.get("data") or []
+    return list(profiles) if isinstance(profiles, list) else []
+
+
+def create_profile(name: str = "PostMeLater Workspace") -> dict[str, Any]:
+    """Create a Zernio profile for connected social accounts."""
+    data = _request(
+        "POST",
+        "/profiles",
+        json={
+            "name": name,
+            "description": "Social accounts connected from PostMeLater.",
+        },
+    )
+    return data.get("profile") or data.get("data") or data
+
+
+def resolve_profile_id() -> str:
+    """Find or create the Zernio profile used for account connections."""
+    configured_profile_id = default_profile_id()
+    if configured_profile_id:
+        return configured_profile_id
+
+    profiles = list_profiles()
+    if profiles:
+        default_profile = next(
+            (profile for profile in profiles if profile.get("isDefault")),
+            profiles[0],
+        )
+        return str(
+            default_profile.get("_id")
+            or default_profile.get("id")
+            or default_profile.get("profileId")
+            or ""
+        )
+
+    profile = create_profile()
+    return str(profile.get("_id") or profile.get("id") or profile.get("profileId") or "")
+
+
+def get_connect_url(platform: str, redirect_url: str) -> str:
+    """Return a hosted OAuth URL for connecting a social account."""
+    profile_id = resolve_profile_id()
+    if not profile_id:
+        raise ZernioError("Create a Zernio profile before connecting accounts.")
+    data = _request(
+        "GET",
+        f"/connect/{platform_api_name(platform)}",
+        params={"profileId": profile_id, "redirect_url": redirect_url},
+    )
+    auth_url = str(data.get("authUrl") or data.get("auth_url") or "")
+    if not auth_url:
+        raise ZernioError("Zernio did not return a connection URL.")
+    return auth_url
 
 
 def list_posts(limit: int = 50, status: str = "") -> list[dict[str, Any]]:
@@ -160,4 +224,3 @@ def update_post(
     except ZernioError:
         data = _request("POST", f"/posts/{post_id}/edit", json=payload)
     return data.get("post") or data.get("data") or data
-
