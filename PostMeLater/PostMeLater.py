@@ -1,6 +1,7 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
 from PostMeLater.states.content_state import ContentState
+from PostMeLater.components.auth_callback import auth_confirm_page
 from PostMeLater.components.docs import docs_page
 from PostMeLater.components.landing import landing_page
 from PostMeLater.components.shell import app_shell
@@ -27,3 +28,8 @@ app = rx.App(
 )
 app.add_page(index, route="/", on_load=ContentState.init_seed)
 app.add_page(docs_page, route="/docs")
+app.add_page(
+    auth_confirm_page,
+    route="/auth/confirm",
+    on_load=AppState.confirm_magic_link,
+)
