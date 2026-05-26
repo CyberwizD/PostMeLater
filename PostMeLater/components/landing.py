@@ -47,7 +47,7 @@ def landing_page() -> rx.Component:
                 ),
                 rx.el.nav(
                     _nav_link("Features"),
-                    _nav_link("Pricing"),
+                    # _nav_link("Pricing"),
                     _nav_link("Docs"),
                     _nav_link("Blog"),
                     class_name="hidden md:flex items-center gap-8",
