@@ -31,5 +31,5 @@ app.add_page(docs_page, route="/docs")
 app.add_page(
     auth_confirm_page,
     route="/auth/confirm",
-    on_load=AppState.confirm_magic_link,
+    on_load=AppState.confirm_auth,
 )
