@@ -1,11 +1,12 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
+from PostMeLater.components.auth import signin_modal
 
 
-def _nav_link(label: str) -> rx.Component:
+def _nav_link(label: str, href: str) -> rx.Component:
     return rx.el.a(
         label,
-        href="#",
+        href=href,
         class_name="text-sm font-medium text-slate-600 hover:text-indigo-600 transition-colors",
     )
 
@@ -46,20 +47,20 @@ def landing_page() -> rx.Component:
                     class_name="flex items-center gap-2",
                 ),
                 rx.el.nav(
-                    _nav_link("Features"),
-                    _nav_link("Docs"),
+                    _nav_link("Features", "#features"),
+                    _nav_link("Documentation", "/docs"),
                     class_name="hidden md:flex items-center gap-8",
                 ),
                 rx.el.div(
                     rx.el.button(
                         "Sign in",
-                        on_click=AppState.enter_app,
+                        on_click=AppState.open_signin,
                         class_name="text-sm font-medium text-slate-600 hover:text-slate-900 hidden sm:block",
                     ),
                     rx.el.button(
                         "Open workspace",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
-                        on_click=AppState.enter_app,
+                        on_click=AppState.open_signin,
                         class_name="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors",
                     ),
                     class_name="flex items-center gap-3",
@@ -95,7 +96,7 @@ def landing_page() -> rx.Component:
                     rx.el.button(
                         "Sign in",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
-                        on_click=AppState.enter_app,
+                        on_click=AppState.open_signin,
                         class_name="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md",
                     ),
                     rx.el.button(
@@ -314,6 +315,7 @@ def landing_page() -> rx.Component:
                 ),
                 class_name="max-w-7xl mx-auto px-6 lg:px-8",
             ),
+            id="features",
             class_name="py-20 bg-white border-y border-slate-200",
         ),
         rx.el.section(
@@ -343,7 +345,7 @@ def landing_page() -> rx.Component:
                     rx.el.button(
                         "Sign in",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
-                        on_click=AppState.enter_app,
+                        on_click=AppState.open_signin,
                         class_name="mt-8 flex items-center gap-2 bg-white text-indigo-700 px-6 py-3 rounded-xl font-semibold hover:bg-indigo-50 transition-all mx-auto",
                     ),
                     class_name="text-center",
@@ -372,5 +374,6 @@ def landing_page() -> rx.Component:
             ),
             class_name="border-t border-slate-200 bg-white",
         ),
+        signin_modal(),
         class_name="min-h-screen bg-slate-50",
     )
