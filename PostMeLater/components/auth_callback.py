@@ -22,7 +22,7 @@ def auth_confirm_page() -> rx.Component:
                 rx.cond(
                     AppState.auth_error != "",
                     "Sign-in link could not be verified",
-                    "Signing you in",
+                    "Signing you in with Google",
                 ),
                 class_name="text-2xl font-bold text-slate-900",
             ),
@@ -30,7 +30,7 @@ def auth_confirm_page() -> rx.Component:
                 rx.cond(
                     AppState.auth_error != "",
                     AppState.auth_error,
-                    "Please wait while PostMeLater verifies your secure link.",
+                    "Please wait while PostMeLater finishes Google sign-in.",
                 ),
                 class_name="text-sm text-slate-600 mt-2 leading-relaxed",
             ),
