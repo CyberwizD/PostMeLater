@@ -47,18 +47,17 @@ def landing_page() -> rx.Component:
                 ),
                 rx.el.nav(
                     _nav_link("Features"),
-                    # _nav_link("Pricing"),
                     _nav_link("Docs"),
-                    _nav_link("Blog"),
                     class_name="hidden md:flex items-center gap-8",
                 ),
                 rx.el.div(
                     rx.el.button(
                         "Sign in",
+                        on_click=AppState.enter_app,
                         class_name="text-sm font-medium text-slate-600 hover:text-slate-900 hidden sm:block",
                     ),
                     rx.el.button(
-                        "Launch app",
+                        "Open workspace",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
                         on_click=AppState.enter_app,
                         class_name="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors",
@@ -76,32 +75,32 @@ def landing_page() -> rx.Component:
                         "sparkles", class_name="h-3.5 w-3.5 text-indigo-600"
                     ),
                     rx.el.span(
-                        "AI-powered scheduling. Built for creators.",
+                        "AI-first content workspace.",
                         class_name="text-xs font-semibold text-indigo-700",
                     ),
                     class_name="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-indigo-50 border border-indigo-100 mb-6",
                 ),
                 rx.el.h1(
-                    "Schedule social posts that ",
+                    "Your personal content ",
                     rx.el.span(
-                        "actually convert.", class_name="text-indigo-600"
+                        "operating system.", class_name="text-indigo-600"
                     ),
                     class_name="text-4xl sm:text-5xl lg:text-6xl font-bold text-slate-900 tracking-tight leading-tight max-w-4xl mx-auto",
                 ),
                 rx.el.p(
-                    "PostMeLater is the all-in-one platform to draft with AI, schedule across every channel, and track lifecycle status in one beautiful dashboard.",
+                    "Draft with AI, shape ideas into posts, schedule across your own channels, and keep your content workflow in one focused workspace.",
                     class_name="mt-6 text-lg text-slate-600 max-w-2xl mx-auto leading-relaxed",
                 ),
                 rx.el.div(
                     rx.el.button(
-                        "Get started free",
+                        "Sign in",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
                         on_click=AppState.enter_app,
                         class_name="flex items-center gap-2 bg-indigo-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md",
                     ),
                     rx.el.button(
                         rx.icon("play", class_name="h-4 w-4"),
-                        "Watch demo",
+                        "Preview workflow",
                         class_name="flex items-center gap-2 bg-white text-slate-700 border border-slate-200 px-6 py-3 rounded-xl font-semibold hover:border-slate-300 transition-all",
                     ),
                     class_name="mt-8 flex flex-col sm:flex-row gap-3 justify-center",
@@ -110,7 +109,7 @@ def landing_page() -> rx.Component:
                     rx.el.div(
                         rx.icon("check", class_name="h-4 w-4 text-emerald-500"),
                         rx.el.span(
-                            "No credit card",
+                            "Private workspace",
                             class_name="text-sm text-slate-600",
                         ),
                         class_name="flex items-center gap-1.5",
@@ -118,14 +117,14 @@ def landing_page() -> rx.Component:
                     rx.el.div(
                         rx.icon("check", class_name="h-4 w-4 text-emerald-500"),
                         rx.el.span(
-                            "14-day trial", class_name="text-sm text-slate-600"
+                            "Bring your Zernio account", class_name="text-sm text-slate-600"
                         ),
                         class_name="flex items-center gap-1.5",
                     ),
                     rx.el.div(
                         rx.icon("check", class_name="h-4 w-4 text-emerald-500"),
                         rx.el.span(
-                            "Cancel anytime",
+                            "AI-assisted drafting",
                             class_name="text-sm text-slate-600",
                         ),
                         class_name="flex items-center gap-1.5",
@@ -275,7 +274,7 @@ def landing_page() -> rx.Component:
                         class_name="text-3xl sm:text-4xl font-bold text-slate-900 tracking-tight",
                     ),
                     rx.el.p(
-                        "From drafting to delivery, PostMeLater handles the entire content workflow.",
+                        "From drafting to delivery, PostMeLater keeps your content workflow focused and personal.",
                         class_name="mt-4 text-lg text-slate-600 max-w-2xl mx-auto",
                     ),
                     class_name="text-center mb-12",
@@ -303,13 +302,13 @@ def landing_page() -> rx.Component:
                     ),
                     _feature_card(
                         "users",
-                        "Multi-Account",
-                        "Connect Twitter, LinkedIn, Instagram, and more. Manage every brand from one queue.",
+                        "Your Accounts",
+                        "Connect the social accounts you actually use and manage them from one queue.",
                     ),
                     _feature_card(
                         "shield-check",
                         "Reliable Delivery",
-                        "Auto-retry on failure, smart conflict detection, and uptime that won't let you down.",
+                        "Track failures, retry delivery, and keep your publishing workflow visible.",
                     ),
                     class_name="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5",
                 ),
@@ -320,10 +319,10 @@ def landing_page() -> rx.Component:
         rx.el.section(
             rx.el.div(
                 rx.el.div(
-                    _stat("12K+", "Active creators"),
-                    _stat("2.4M", "Posts scheduled"),
-                    _stat("99.9%", "Delivery uptime"),
-                    _stat("4.9★", "Average rating"),
+                    _stat("1", "Focused workspace"),
+                    _stat("24/7", "Content queue"),
+                    _stat("AI", "Draft assistant"),
+                    _stat("2+", "Connected accounts"),
                     class_name="grid grid-cols-2 md:grid-cols-4 gap-8",
                 ),
                 class_name="max-w-5xl mx-auto px-6 lg:px-8",
@@ -334,15 +333,15 @@ def landing_page() -> rx.Component:
             rx.el.div(
                 rx.el.div(
                     rx.el.h2(
-                        "Ready to take back your time?",
+                        "Ready to open your workspace?",
                         class_name="text-3xl sm:text-4xl font-bold text-white tracking-tight",
                     ),
                     rx.el.p(
-                        "Join thousands of creators using PostMeLater to ship consistent, high-quality content.",
+                        "Sign in and keep building your personal content system.",
                         class_name="mt-4 text-lg text-indigo-100 max-w-2xl mx-auto",
                     ),
                     rx.el.button(
-                        "Launch the app",
+                        "Sign in",
                         rx.icon("arrow-right", class_name="h-4 w-4"),
                         on_click=AppState.enter_app,
                         class_name="mt-8 flex items-center gap-2 bg-white text-indigo-700 px-6 py-3 rounded-xl font-semibold hover:bg-indigo-50 transition-all mx-auto",
@@ -366,7 +365,7 @@ def landing_page() -> rx.Component:
                     class_name="flex items-center gap-2",
                 ),
                 rx.el.p(
-                    "© 2025 PostMeLater. All rights reserved.",
+                    "© 2026 PostMeLater. All rights reserved.",
                     class_name="text-sm text-slate-500",
                 ),
                 class_name="max-w-7xl mx-auto px-6 lg:px-8 h-16 flex items-center justify-between",
