@@ -1,12 +1,14 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
 from PostMeLater.components.views import dashboard_view, studio_view, scheduling_view
+from PostMeLater.components.settings import settings_view
 
 
 NAV_ITEMS = [
     ("dashboard", "Dashboard", "layout-dashboard"),
     ("studio", "AI Content Studio", "sparkles"),
     ("scheduling", "Scheduling Center", "calendar-clock"),
+    ("settings", "Settings", "settings"),
 ]
 
 
@@ -61,13 +63,7 @@ def _sidebar() -> rx.Component:
                 rx.el.button(
                     rx.icon("settings", class_name="h-4 w-4"),
                     rx.el.span("Settings", class_name="text-sm font-medium"),
-                    class_name="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors",
-                ),
-                rx.el.button(
-                    rx.icon("life-buoy", class_name="h-4 w-4"),
-                    rx.el.span(
-                        "Help & support", class_name="text-sm font-medium"
-                    ),
+                    on_click=lambda: AppState.set_view("settings"),
                     class_name="flex items-center gap-3 w-full px-3 py-2 rounded-lg text-slate-600 hover:bg-slate-100 transition-colors",
                 ),
                 class_name="flex flex-col gap-1",
@@ -92,6 +88,7 @@ def _sidebar() -> rx.Component:
                     class_name="flex-1 min-w-0",
                 ),
                 rx.icon("chevron-right", class_name="h-4 w-4 text-slate-400"),
+                on_click=lambda: AppState.set_view("settings"),
                 class_name="flex items-center gap-3 px-3 py-2 rounded-lg hover:bg-slate-50 cursor-pointer",
             ),
             class_name="border-t border-slate-200 p-3",
@@ -171,6 +168,7 @@ def _mobile_drawer() -> rx.Component:
                     _nav_button(
                         "scheduling", "Scheduling Center", "calendar-clock"
                     ),
+                    _nav_button("settings", "Settings", "settings"),
                     rx.el.div(class_name="h-px bg-slate-200 my-3"),
                     rx.el.button(
                         rx.icon("log-out", class_name="h-4 w-4"),
@@ -201,6 +199,7 @@ def app_shell() -> rx.Component:
                         ("dashboard", dashboard_view()),
                         ("studio", studio_view()),
                         ("scheduling", scheduling_view()),
+                        ("settings", settings_view()),
                         dashboard_view(),
                     ),
                     class_name="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8",
