@@ -71,6 +71,10 @@ def _filter_pill(label: str, value: str, count) -> rx.Component:
     )
 
 
+def _account_option(option) -> rx.Component:
+    return rx.el.option(option["label"], value=option["value"])
+
+
 def _post_row(post: ScheduledPost) -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -314,22 +318,7 @@ def _edit_modal() -> rx.Component:
                         ),
                         rx.el.div(
                             rx.el.select(
-                                rx.el.option(
-                                    "@studio.main",
-                                    value="@studio.main",
-                                ),
-                                rx.el.option(
-                                    "@studio.creator",
-                                    value="@studio.creator",
-                                ),
-                                rx.el.option(
-                                    "@brand.official",
-                                    value="@brand.official",
-                                ),
-                                rx.el.option(
-                                    "@founder.alex",
-                                    value="@founder.alex",
-                                ),
+                                rx.foreach(ContentState.account_options, _account_option),
                                 value=ContentState.edit_account,
                                 on_change=ContentState.set_edit_account,
                                 class_name="w-full px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-sm appearance-none cursor-pointer text-slate-900",
@@ -467,16 +456,7 @@ def scheduling_view() -> rx.Component:
                     rx.el.div(
                         rx.el.select(
                             rx.el.option("All accounts", value="all"),
-                            rx.el.option("@studio.main", value="@studio.main"),
-                            rx.el.option(
-                                "@studio.creator", value="@studio.creator"
-                            ),
-                            rx.el.option(
-                                "@brand.official", value="@brand.official"
-                            ),
-                            rx.el.option(
-                                "@founder.alex", value="@founder.alex"
-                            ),
+                            rx.foreach(ContentState.account_options, _account_option),
                             value=ContentState.queue_account_filter,
                             on_change=ContentState.set_queue_account_filter,
                             class_name="px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-sm appearance-none cursor-pointer text-slate-700",
