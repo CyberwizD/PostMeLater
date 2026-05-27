@@ -453,6 +453,12 @@ def scheduling_view() -> rx.Component:
                     ),
                 ),
                 rx.el.div(
+                    rx.el.button(
+                        rx.icon("refresh-cw", class_name="h-4 w-4"),
+                        "Sync Zernio",
+                        on_click=ContentState.refresh_post_statuses,
+                        class_name="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:border-slate-300 transition-colors",
+                    ),
                     rx.el.div(
                         rx.el.select(
                             rx.el.option("All accounts", value="all"),
