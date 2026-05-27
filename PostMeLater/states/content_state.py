@@ -144,6 +144,8 @@ class AnalyticsPost(TypedDict):
 
 class DailyMetric(TypedDict):
     day: str
+    month: str
+    label: str
     posts: int
     engagement: int
     impressions: int
@@ -1632,6 +1634,8 @@ class ContentState(rx.State):
                 daily.append(
                     DailyMetric(
                         day=str(raw.get("date") or raw.get("day") or ""),
+                        month="",
+                        label=str(raw.get("label") or ""),
                         posts=_metric_value(metrics, "posts")
                         or _metric_value(metrics, "postCount"),
                         engagement=_metric_value(metrics, "engagement"),
@@ -1799,7 +1803,31 @@ class ContentState(rx.State):
     @rx.var
     def analytics_chart(self) -> list[DailyMetric]:
         if self.analytics_daily_metrics:
-            return self.analytics_daily_metrics[-14:]
+            points: list[DailyMetric] = []
+            for point in self.analytics_daily_metrics[-14:]:
+                day = point.get("day", "")
+                month = point.get("month", "")
+                label = point.get("label", "")
+                try:
+                    parsed = datetime.fromisoformat(day).date()
+                    day = parsed.strftime("%d").lstrip("0")
+                    month = parsed.strftime("%b")
+                    label = parsed.strftime("%b %d")
+                except Exception:
+                    if not label:
+                        label = day
+                points.append(
+                    DailyMetric(
+                        day=day,
+                        month=month,
+                        label=label,
+                        posts=point["posts"],
+                        engagement=point["engagement"],
+                        impressions=point["impressions"],
+                        reach=point["reach"],
+                    )
+                )
+            return points
         today = _now().date()
         points: list[DailyMetric] = []
         for i in range(14):
@@ -1816,7 +1844,9 @@ class ContentState(rx.State):
                     engagement += int(post.get("engagement", 0) or 0)
             points.append(
                 DailyMetric(
-                    day=d.strftime("%b %d"),
+                    day=d.strftime("%d").lstrip("0"),
+                    month=d.strftime("%b"),
+                    label=d.strftime("%b %d"),
                     posts=posts,
                     engagement=engagement,
                     impressions=0,
@@ -1824,6 +1854,20 @@ class ContentState(rx.State):
                 )
             )
         return points
+
+    @rx.var
+    def analytics_chart_month_label(self) -> str:
+        points = self.analytics_chart
+        months = []
+        for point in points:
+            month = point.get("month", "")
+            if month and month not in months:
+                months.append(month)
+        if not months:
+            return "Last 14 days"
+        if len(months) == 1:
+            return months[0]
+        return f"{months[0]} - {months[-1]}"
 
     @rx.var
     def top_analytics_posts(self) -> list[AnalyticsPost]:
