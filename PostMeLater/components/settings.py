@@ -195,6 +195,16 @@ def settings_view() -> rx.Component:
                         ContentState.ai_model_input,
                         ContentState.set_ai_model_input,
                     ),
+                    rx.cond(
+                        ContentState.ai_base_url_enabled,
+                        _integration_input(
+                            "Base URL",
+                            "https://openrouter.ai/api/v1 or your provider URL",
+                            ContentState.ai_base_url_input,
+                            ContentState.set_ai_base_url_input,
+                        ),
+                        rx.fragment(),
+                    ),
                     rx.el.button(
                         rx.icon("save", class_name="h-4 w-4"),
                         "Save AI settings",
