@@ -168,6 +168,17 @@ CONNECT_PLATFORM_OPTIONS = [
     "Pinterest",
     "Reddit",
 ]
+AI_PROVIDER_OPTIONS = ["Gemini", "OpenAI", "Claude"]
+AI_PROVIDER_KEYS = {
+    "Gemini": "gemini",
+    "OpenAI": "openai",
+    "Claude": "anthropic",
+}
+AI_PROVIDER_LABELS = {
+    "gemini": "Gemini",
+    "openai": "OpenAI",
+    "anthropic": "Claude",
+}
 API_PLATFORM_LABELS = {
     "twitter": "Twitter / X",
     "x": "Twitter / X",
@@ -494,6 +505,7 @@ class ContentState(rx.State):
     zernio_key_saved: bool = False
     ai_api_key_input: str = ""
     ai_model_input: str = ""
+    ai_provider_input: str = "Gemini"
     ai_key_saved: bool = False
 
     ideas: list[IdeaItem] = []
@@ -544,8 +556,12 @@ class ContentState(rx.State):
 
     def _load_ai_settings(self):
         settings = store.get_ai_settings(self._owner_id())
+        provider = settings.get("provider", "gemini")
         self.ai_key_saved = bool(settings.get("api_key"))
-        self.ai_model_input = settings.get("model", "") or "gemini-2.0-flash"
+        self.ai_provider_input = AI_PROVIDER_LABELS.get(provider, "Gemini")
+        self.ai_model_input = (
+            settings.get("model", "") or gemini.default_model(provider)
+        )
 
     def _zernio_settings(self) -> dict[str, str]:
         return store.get_zernio_settings(self._owner_id())
@@ -564,6 +580,9 @@ class ContentState(rx.State):
 
     def _ai_model(self) -> str:
         return self._ai_settings().get("model", "")
+
+    def _ai_provider(self) -> str:
+        return self._ai_settings().get("provider", "gemini")
 
     def _reload_from_store(self):
         self.drafts = store.list_drafts(self._owner_id())
@@ -649,6 +668,12 @@ class ContentState(rx.State):
         self.ai_model_input = value
 
     @rx.event
+    def set_ai_provider_input(self, value: str):
+        self.ai_provider_input = value
+        provider = AI_PROVIDER_KEYS.get(value, "gemini")
+        self.ai_model_input = gemini.default_model(provider)
+
+    @rx.event
     def save_zernio_settings(self):
         existing = self._zernio_settings()
         api_key = self.zernio_api_key_input.strip() or existing.get("api_key", "")
@@ -667,9 +692,10 @@ class ContentState(rx.State):
         existing = self._ai_settings()
         api_key = self.ai_api_key_input.strip() or existing.get("api_key", "")
         model = self.ai_model_input.strip() or existing.get("model", "")
+        provider = AI_PROVIDER_KEYS.get(self.ai_provider_input, "gemini")
         if not api_key:
-            return rx.toast("Paste a Gemini API key first.")
-        store.save_ai_settings(self._owner_id(), api_key, model)
+            return rx.toast("Paste an AI API key first.")
+        store.save_ai_settings(self._owner_id(), api_key, model, provider)
         self.ai_api_key_input = ""
         self._load_ai_settings()
         return rx.toast("AI settings saved")
@@ -774,8 +800,14 @@ class ContentState(rx.State):
     @rx.var
     def ai_status_detail(self) -> str:
         if self.ai_key_saved:
-            return "Your saved Gemini key is used for AI generation."
-        return "AI uses the app Gemini key until you save your own."
+            return f"Your saved {self.ai_provider_input} key is used for AI generation."
+        return "AI uses the app Gemini key until you save your own provider key."
+
+    @rx.var
+    def ai_engine_label(self) -> str:
+        provider = self._ai_provider() if self.ai_key_saved else "gemini"
+        model = self._ai_model() if self.ai_key_saved else gemini.default_model("gemini")
+        return f"{AI_PROVIDER_LABELS.get(provider, 'Gemini')} · {model}"
 
     @rx.var
     def char_count(self) -> int:
@@ -947,6 +979,7 @@ class ContentState(rx.State):
                 prompt,
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
+                provider=self._ai_provider(),
             )
         except Exception as exc:
             logging.exception("Gemini generation failed")
@@ -977,6 +1010,7 @@ class ContentState(rx.State):
                 prompt,
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
+                provider=self._ai_provider(),
             )
         except Exception as exc:
             logging.exception("Gemini shorten failed")
@@ -1016,6 +1050,7 @@ class ContentState(rx.State):
                 prompt,
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
+                provider=self._ai_provider(),
             )
         except Exception as exc:
             logging.exception("Gemini CTA failed")
@@ -1460,6 +1495,7 @@ class ContentState(rx.State):
                 prompt,
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
+                provider=self._ai_provider(),
             )
         except Exception as exc:
             logging.exception("Gemini repurpose failed")
