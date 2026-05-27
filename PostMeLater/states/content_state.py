@@ -90,6 +90,66 @@ class PlatformPoint(TypedDict):
     posts: int
 
 
+class IdeaItem(TypedDict):
+    id: str
+    title: str
+    notes: str
+    status: str
+    source: str
+    created_at: str
+    updated_at: str
+
+
+class ContentTemplate(TypedDict):
+    id: str
+    name: str
+    prompt: str
+    created_at: str
+    updated_at: str
+
+
+class ContentCampaign(TypedDict):
+    id: str
+    name: str
+    goal: str
+    created_at: str
+    updated_at: str
+
+
+class AnalyticsMetric(TypedDict):
+    label: str
+    value: str
+    hint: str
+    icon: str
+    accent: str
+
+
+class AnalyticsPost(TypedDict):
+    id: str
+    body: str
+    platform: str
+    account: str
+    published_at: str
+    engagement: int
+    impressions: int
+    reach: int
+    likes: int
+    comments: int
+    shares: int
+    saves: int
+    clicks: int
+    views: int
+    url: str
+
+
+class DailyMetric(TypedDict):
+    day: str
+    posts: int
+    engagement: int
+    impressions: int
+    reach: int
+
+
 PLATFORM_OPTIONS = [
     "Twitter / X",
     "LinkedIn",
@@ -371,6 +431,48 @@ def _seed_drafts() -> list[Draft]:
     ]
 
 
+def _unwrap_items(payload: Any, keys: list[str]) -> list[dict[str, Any]]:
+    if isinstance(payload, list):
+        return [item for item in payload if isinstance(item, dict)]
+    if not isinstance(payload, dict):
+        return []
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, list):
+            return [item for item in value if isinstance(item, dict)]
+        if isinstance(value, dict):
+            nested = _unwrap_items(value, keys)
+            if nested:
+                return nested
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    if isinstance(data, dict):
+        return _unwrap_items(data, keys)
+    return []
+
+
+def _metric_value(metrics: Any, key: str) -> int:
+    if isinstance(metrics, list):
+        return sum(_metric_value(item, key) for item in metrics)
+    if not isinstance(metrics, dict):
+        return 0
+    value = metrics.get(key)
+    if isinstance(value, dict):
+        value = value.get("value") or value.get("total")
+    try:
+        return int(value or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _post_text(post: dict[str, Any]) -> str:
+    content = post.get("content") or post.get("text") or post.get("body") or ""
+    if isinstance(content, dict):
+        content = content.get("text") or content.get("body") or ""
+    return str(content)
+
+
 class ContentState(rx.State):
     user_id: str = "default"
     topic: str = ""
@@ -390,6 +492,27 @@ class ContentState(rx.State):
     zernio_api_key_input: str = ""
     zernio_profile_id_input: str = ""
     zernio_key_saved: bool = False
+
+    ideas: list[IdeaItem] = []
+    templates: list[ContentTemplate] = []
+    campaigns: list[ContentCampaign] = []
+    idea_title: str = ""
+    idea_notes: str = ""
+    idea_source: str = ""
+    template_name: str = ""
+    template_prompt: str = ""
+    campaign_name: str = ""
+    campaign_goal: str = ""
+    brand_voice: str = ""
+    brand_audience: str = ""
+    brand_keywords: str = ""
+    repurpose_source: str = ""
+    repurpose_result: str = ""
+    is_repurposing: bool = False
+    analytics_posts: list[AnalyticsPost] = []
+    analytics_daily_metrics: list[DailyMetric] = []
+    analytics_notice: str = ""
+    analytics_window: str = "30"
 
     schedule_date: str = ""
     schedule_time: str = "09:00"
@@ -429,6 +552,16 @@ class ContentState(rx.State):
         self.drafts = store.list_drafts(self._owner_id())
         self.scheduled_posts = store.list_posts(self._owner_id())
         self.accounts = store.list_accounts(self._owner_id())
+        self.ideas = store.list_ideas(self._owner_id())
+        self.templates = store.list_templates(self._owner_id())
+        self.campaigns = store.list_campaigns(self._owner_id())
+        brand = store.get_brand_settings(self._owner_id())
+        if not self.brand_voice:
+            self.brand_voice = brand.get("voice", "")
+        if not self.brand_audience:
+            self.brand_audience = brand.get("audience", "")
+        if not self.brand_keywords:
+            self.brand_keywords = brand.get("keywords", "")
         self._sync_selected_platforms()
         if not self.schedule_date:
             self.schedule_date = _now().strftime("%Y-%m-%d")
@@ -1091,6 +1224,301 @@ class ContentState(rx.State):
         self.queue_account_filter = v
 
     @rx.event
+    def set_idea_title(self, value: str):
+        self.idea_title = value
+
+    @rx.event
+    def set_idea_notes(self, value: str):
+        self.idea_notes = value
+
+    @rx.event
+    def set_idea_source(self, value: str):
+        self.idea_source = value
+
+    @rx.event
+    def save_idea(self):
+        title = self.idea_title.strip()
+        if not title:
+            return rx.toast("Add an idea title first.")
+        store.save_idea(
+            {
+                "id": str(uuid.uuid4()),
+                "title": title,
+                "notes": self.idea_notes.strip(),
+                "status": "inbox",
+                "source": self.idea_source.strip(),
+            },
+            self._owner_id(),
+        )
+        self.idea_title = ""
+        self.idea_notes = ""
+        self.idea_source = ""
+        self._reload_from_store()
+        return rx.toast("Idea saved")
+
+    @rx.event
+    def update_idea_status(self, idea_id: str, status: str):
+        store.update_idea_status(idea_id, status, self._owner_id())
+        self._reload_from_store()
+
+    @rx.event
+    def delete_idea(self, idea_id: str):
+        store.delete_idea(idea_id, self._owner_id())
+        self._reload_from_store()
+
+    @rx.event
+    async def load_idea_to_studio(self, idea_id: str):
+        for idea in self.ideas:
+            if idea["id"] == idea_id:
+                self.topic = idea["title"]
+                self.keywords = idea.get("source", "")
+                self.post_body = idea.get("notes", "")
+                from PostMeLater.states.app_state import AppState
+
+                app_state = await self.get_state(AppState)
+                app_state.active_view = "studio"
+                return rx.toast("Idea loaded into Studio")
+        return None
+
+    @rx.event
+    def set_template_name(self, value: str):
+        self.template_name = value
+
+    @rx.event
+    def set_template_prompt(self, value: str):
+        self.template_prompt = value
+
+    @rx.event
+    def save_template(self):
+        if not self.template_name.strip() or not self.template_prompt.strip():
+            return rx.toast("Add a template name and prompt.")
+        store.save_template(
+            {
+                "id": str(uuid.uuid4()),
+                "name": self.template_name.strip(),
+                "prompt": self.template_prompt.strip(),
+            },
+            self._owner_id(),
+        )
+        self.template_name = ""
+        self.template_prompt = ""
+        self._reload_from_store()
+        return rx.toast("Template saved")
+
+    @rx.event
+    def delete_template(self, template_id: str):
+        store.delete_template(template_id, self._owner_id())
+        self._reload_from_store()
+
+    @rx.event
+    async def use_template(self, template_id: str):
+        for template in self.templates:
+            if template["id"] == template_id:
+                self.topic = template["name"]
+                self.keywords = self.brand_keywords
+                self.post_body = template["prompt"]
+                from PostMeLater.states.app_state import AppState
+
+                app_state = await self.get_state(AppState)
+                app_state.active_view = "studio"
+                return rx.toast("Template loaded into Studio")
+        return None
+
+    @rx.event
+    def set_campaign_name(self, value: str):
+        self.campaign_name = value
+
+    @rx.event
+    def set_campaign_goal(self, value: str):
+        self.campaign_goal = value
+
+    @rx.event
+    def save_campaign(self):
+        if not self.campaign_name.strip():
+            return rx.toast("Name the campaign first.")
+        store.save_campaign(
+            {
+                "id": str(uuid.uuid4()),
+                "name": self.campaign_name.strip(),
+                "goal": self.campaign_goal.strip(),
+            },
+            self._owner_id(),
+        )
+        self.campaign_name = ""
+        self.campaign_goal = ""
+        self._reload_from_store()
+        return rx.toast("Campaign saved")
+
+    @rx.event
+    def delete_campaign(self, campaign_id: str):
+        store.delete_campaign(campaign_id, self._owner_id())
+        self._reload_from_store()
+
+    @rx.event
+    def set_brand_voice(self, value: str):
+        self.brand_voice = value
+
+    @rx.event
+    def set_brand_audience(self, value: str):
+        self.brand_audience = value
+
+    @rx.event
+    def set_brand_keywords(self, value: str):
+        self.brand_keywords = value
+
+    @rx.event
+    def save_brand_profile(self):
+        store.save_brand_settings(
+            self._owner_id(),
+            self.brand_voice,
+            self.brand_audience,
+            self.brand_keywords,
+        )
+        self._reload_from_store()
+        return rx.toast("Brand profile saved")
+
+    @rx.event
+    def set_repurpose_source(self, value: str):
+        self.repurpose_source = value
+
+    @rx.event
+    def repurpose_long_text(self):
+        if not self.repurpose_source.strip():
+            return rx.toast("Paste the long-form content first.")
+        self.is_repurposing = True
+        yield
+        try:
+            prompt = (
+                "Turn this long-form content into 5 ready-to-post social posts.\n"
+                f"Brand voice: {self.brand_voice or self.tone}\n"
+                f"Audience: {self.brand_audience or self.audience or 'my audience'}\n"
+                f"Keywords: {self.brand_keywords or self.keywords}\n\n"
+                "Return only the posts, numbered 1-5. Make each post useful, "
+                "specific, and concise.\n\n"
+                f"Content:\n{self.repurpose_source}"
+            )
+            self.repurpose_result = gemini.generate_text(prompt)
+        except Exception:
+            logging.exception("Gemini repurpose failed")
+            chunks = [
+                line.strip()
+                for line in self.repurpose_source.splitlines()
+                if line.strip()
+            ][:5]
+            if not chunks:
+                chunks = [self.repurpose_source.strip()[:240]]
+            self.repurpose_result = "\n\n".join(
+                f"{i + 1}. {chunk[:260]}" for i, chunk in enumerate(chunks)
+            )
+            self.is_repurposing = False
+            return rx.toast("Gemini failed, so I created a simple fallback.")
+        self.is_repurposing = False
+
+    @rx.event
+    async def use_repurpose_in_studio(self):
+        if not self.repurpose_result.strip():
+            return rx.toast("Generate repurposed posts first.")
+        from PostMeLater.states.app_state import AppState
+
+        self.post_body = self.repurpose_result
+        app_state = await self.get_state(AppState)
+        app_state.active_view = "studio"
+        return rx.toast("Repurposed content loaded into Studio")
+
+    @rx.event
+    def set_analytics_window(self, value: str):
+        self.analytics_window = value
+
+    @rx.event
+    def refresh_analytics(self):
+        api_key = self._zernio_api_key()
+        if not api_key:
+            self.analytics_posts = []
+            self.analytics_daily_metrics = []
+            self.analytics_notice = "Add your Zernio API key in Settings."
+            return rx.toast("Add your Zernio API key first.")
+        try:
+            days = max(7, min(366, int(self.analytics_window or "30")))
+        except ValueError:
+            days = 30
+        to_date = _now().date()
+        from_date = to_date - timedelta(days=days)
+        try:
+            payload = zernio.get_analytics(
+                limit=50,
+                profile_id=self._zernio_profile_id(),
+                from_date=from_date.strftime("%Y-%m-%d"),
+                to_date=to_date.strftime("%Y-%m-%d"),
+                api_key_override=api_key,
+            )
+            raw_posts = _unwrap_items(payload, ["posts", "analytics", "items"])
+            posts: list[AnalyticsPost] = []
+            for raw in raw_posts:
+                metrics = raw.get("analytics") or raw.get("metrics") or raw
+                engagement = (
+                    _metric_value(metrics, "engagement")
+                    or _metric_value(metrics, "likes")
+                    + _metric_value(metrics, "comments")
+                    + _metric_value(metrics, "shares")
+                    + _metric_value(metrics, "saves")
+                    + _metric_value(metrics, "clicks")
+                )
+                posts.append(
+                    AnalyticsPost(
+                        id=str(raw.get("postId") or raw.get("id") or raw.get("_id") or ""),
+                        body=_post_text(raw),
+                        platform=str(raw.get("platform") or raw.get("platforms") or "all"),
+                        account=str(raw.get("accountName") or raw.get("account") or ""),
+                        published_at=str(raw.get("publishedAt") or raw.get("scheduledFor") or ""),
+                        engagement=engagement,
+                        impressions=_metric_value(metrics, "impressions"),
+                        reach=_metric_value(metrics, "reach"),
+                        likes=_metric_value(metrics, "likes"),
+                        comments=_metric_value(metrics, "comments"),
+                        shares=_metric_value(metrics, "shares"),
+                        saves=_metric_value(metrics, "saves"),
+                        clicks=_metric_value(metrics, "clicks"),
+                        views=_metric_value(metrics, "views"),
+                        url=str(raw.get("platformPostUrl") or raw.get("url") or ""),
+                    )
+                )
+            self.analytics_posts = sorted(
+                posts, key=lambda item: item["engagement"], reverse=True
+            )
+            daily_payload = zernio.get_daily_metrics(
+                profile_id=self._zernio_profile_id(),
+                from_date=from_date.isoformat(),
+                to_date=to_date.isoformat(),
+                api_key_override=api_key,
+            )
+            raw_days = _unwrap_items(
+                daily_payload, ["days", "metrics", "dailyMetrics", "items"]
+            )
+            daily: list[DailyMetric] = []
+            for raw in raw_days:
+                metrics = raw.get("metrics") or raw
+                daily.append(
+                    DailyMetric(
+                        day=str(raw.get("date") or raw.get("day") or ""),
+                        posts=_metric_value(metrics, "posts")
+                        or _metric_value(metrics, "postCount"),
+                        engagement=_metric_value(metrics, "engagement"),
+                        impressions=_metric_value(metrics, "impressions"),
+                        reach=_metric_value(metrics, "reach"),
+                    )
+                )
+            self.analytics_daily_metrics = daily
+            self.analytics_notice = (
+                "" if self.analytics_posts or self.analytics_daily_metrics
+                else "No Zernio analytics found for this window yet."
+            )
+        except Exception:
+            logging.exception("Could not load Zernio analytics")
+            self.analytics_notice = "Could not load Zernio analytics right now."
+            return rx.toast("Could not load Zernio analytics.")
+        return rx.toast("Analytics refreshed")
+
+    @rx.event
     async def init_seed(self):
         from PostMeLater.states.app_state import AppState
 
@@ -1184,6 +1612,119 @@ class ContentState(rx.State):
         self.edit_modal_open = False
         self.edit_post_id = ""
         return rx.toast("Schedule updated")
+
+    @rx.var
+    def inbox_ideas(self) -> list[IdeaItem]:
+        return [idea for idea in self.ideas if idea.get("status") == "inbox"]
+
+    @rx.var
+    def planned_ideas(self) -> list[IdeaItem]:
+        return [idea for idea in self.ideas if idea.get("status") == "planned"]
+
+    @rx.var
+    def archived_ideas(self) -> list[IdeaItem]:
+        return [idea for idea in self.ideas if idea.get("status") == "archived"]
+
+    @rx.var
+    def analytics_metric_cards(self) -> list[AnalyticsMetric]:
+        posts = self.analytics_posts
+        total_engagement = sum(post["engagement"] for post in posts)
+        impressions = sum(post["impressions"] for post in posts)
+        reach = sum(post["reach"] for post in posts)
+        avg = round(total_engagement / len(posts), 1) if posts else 0
+        return [
+            AnalyticsMetric(
+                label="Posts tracked",
+                value=str(len(posts)),
+                hint=f"Last {self.analytics_window} days",
+                icon="files",
+                accent="indigo",
+            ),
+            AnalyticsMetric(
+                label="Engagement",
+                value=str(total_engagement),
+                hint=f"Avg {avg} per post",
+                icon="heart",
+                accent="emerald",
+            ),
+            AnalyticsMetric(
+                label="Impressions",
+                value=str(impressions),
+                hint="Across synced posts",
+                icon="eye",
+                accent="amber",
+            ),
+            AnalyticsMetric(
+                label="Reach",
+                value=str(reach),
+                hint="Unique audience where available",
+                icon="radio-tower",
+                accent="slate",
+            ),
+        ]
+
+    @rx.var
+    def analytics_chart(self) -> list[DailyMetric]:
+        if self.analytics_daily_metrics:
+            return self.analytics_daily_metrics[-14:]
+        today = _now().date()
+        points: list[DailyMetric] = []
+        for i in range(14):
+            d = today - timedelta(days=13 - i)
+            posts = 0
+            engagement = 0
+            for post in self.scheduled_posts:
+                try:
+                    dt = datetime.fromisoformat(post["scheduled_at"]).date()
+                except Exception:
+                    continue
+                if dt == d:
+                    posts += 1
+                    engagement += int(post.get("engagement", 0) or 0)
+            points.append(
+                DailyMetric(
+                    day=d.strftime("%b %d"),
+                    posts=posts,
+                    engagement=engagement,
+                    impressions=0,
+                    reach=0,
+                )
+            )
+        return points
+
+    @rx.var
+    def top_analytics_posts(self) -> list[AnalyticsPost]:
+        return self.analytics_posts[:5]
+
+    @rx.var
+    def best_time_summary(self) -> str:
+        buckets: dict[str, tuple[int, int]] = {}
+        for post in self.scheduled_posts:
+            if post["status"] != "posted":
+                continue
+            try:
+                dt = datetime.fromisoformat(post["scheduled_at"])
+            except Exception:
+                continue
+            hour = dt.hour
+            if 5 <= hour < 12:
+                label = "Morning"
+            elif 12 <= hour < 17:
+                label = "Afternoon"
+            elif 17 <= hour < 22:
+                label = "Evening"
+            else:
+                label = "Late night"
+            total, count = buckets.get(label, (0, 0))
+            buckets[label] = (total + int(post.get("engagement", 0) or 0), count + 1)
+        if not buckets:
+            return "Not enough posted content yet. Post more to see your best window."
+        best = max(
+            buckets.items(),
+            key=lambda item: item[1][0] / max(item[1][1], 1),
+        )
+        avg = round(best[1][0] / best[1][1], 1)
+        return f"{best[0]} is currently strongest with {avg} avg engagement."
 
     @rx.var
     def week_calendar(self) -> list[DayColumn]:
