@@ -160,36 +160,53 @@ def _platform_chart() -> rx.Component:
             ),
             class_name="mb-4",
         ),
-        rx.recharts.bar_chart(
-            rx.recharts.cartesian_grid(
-                horizontal=True, vertical=False, class_name="opacity-40"
+        rx.cond(
+            ContentState.platform_chart.length() > 0,
+            rx.recharts.bar_chart(
+                rx.recharts.cartesian_grid(
+                    horizontal=True, vertical=False, class_name="opacity-40"
+                ),
+                rx.recharts.graphing_tooltip(**TOOLTIP_PROPS),
+                rx.recharts.bar(
+                    data_key="posts",
+                    name="Posts",
+                    fill="#6366F1",
+                    radius=[6, 6, 0, 0],
+                ),
+                rx.recharts.x_axis(
+                    data_key="platform",
+                    axis_line=False,
+                    tick_line=False,
+                    tick_size=10,
+                    interval=0,
+                    custom_attrs={"fontSize": "12px", "fill": "#64748b"},
+                ),
+                rx.recharts.y_axis(
+                    axis_line=False,
+                    tick_line=False,
+                    tick_size=10,
+                    allow_decimals=False,
+                    custom_attrs={"fontSize": "12px", "fill": "#64748b"},
+                ),
+                data=ContentState.platform_chart,
+                width="100%",
+                height=260,
+                bar_size=32,
+                margin={"left": 0, "right": 12, "top": 10, "bottom": 0},
+                class_name=CHART_TOOLTIP_CLASS,
             ),
-            rx.recharts.graphing_tooltip(**TOOLTIP_PROPS),
-            rx.recharts.bar(
-                data_key="posts",
-                name="Posts",
-                fill="#6366F1",
-                radius=[6, 6, 0, 0],
+            rx.el.div(
+                rx.icon("bar-chart-3", class_name="h-10 w-10 text-slate-300 mx-auto"),
+                rx.el.p(
+                    "No platform data yet",
+                    class_name="text-sm font-semibold text-slate-800 mt-3",
+                ),
+                rx.el.p(
+                    "Connect a social account or schedule a post to build this chart.",
+                    class_name="text-xs text-slate-500 mt-1",
+                ),
+                class_name="h-[260px] flex flex-col items-center justify-center text-center bg-slate-50 border border-slate-200 rounded-xl",
             ),
-            rx.recharts.x_axis(
-                data_key="platform",
-                axis_line=False,
-                tick_line=False,
-                tick_size=10,
-                custom_attrs={"fontSize": "12px", "fill": "#64748b"},
-            ),
-            rx.recharts.y_axis(
-                axis_line=False,
-                tick_line=False,
-                tick_size=10,
-                custom_attrs={"fontSize": "12px", "fill": "#64748b"},
-            ),
-            data=ContentState.platform_chart,
-            width="100%",
-            height=260,
-            bar_size=32,
-            margin={"left": 0, "right": 12, "top": 10, "bottom": 0},
-            class_name=CHART_TOOLTIP_CLASS,
         ),
         class_name="bg-white border border-slate-200 rounded-xl p-5",
     )
