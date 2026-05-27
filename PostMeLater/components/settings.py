@@ -26,7 +26,7 @@ def _section(title: str, icon: str, *children: rx.Component) -> rx.Component:
             class_name="flex items-center gap-2 mb-4",
         ),
         *children,
-        class_name="bg-white border border-slate-200 rounded-2xl p-5",
+        class_name="bg-white border border-slate-200 rounded-2xl p-5 h-fit",
     )
 
 
@@ -139,8 +139,47 @@ def settings_view() -> rx.Component:
                     class_name="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl",
                 ),
                 rx.el.div(
-                    _info_row("Publishing", "Zernio", "send"),
-                    _info_row("AI engine", "Gemini", "sparkles"),
+                    rx.el.div(
+                        rx.el.span(
+                            ContentState.ai_status_label,
+                            class_name=rx.cond(
+                                ContentState.ai_key_saved,
+                                "text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md",
+                                "text-xs font-semibold text-slate-700 bg-slate-100 px-2 py-1 rounded-md",
+                            ),
+                        ),
+                        rx.el.p(
+                            ContentState.ai_status_detail,
+                            class_name="text-xs text-slate-500 mt-2",
+                        ),
+                        class_name="mb-4",
+                    ),
+                    _integration_input(
+                        "Gemini API key",
+                        rx.cond(
+                            ContentState.ai_key_saved,
+                            "Leave blank to keep saved key",
+                            "Optional: paste your own Gemini API key",
+                        ),
+                        ContentState.ai_api_key_input,
+                        ContentState.set_ai_api_key_input,
+                        "password",
+                    ),
+                    _integration_input(
+                        "Gemini model",
+                        "gemini-2.0-flash",
+                        ContentState.ai_model_input,
+                        ContentState.set_ai_model_input,
+                    ),
+                    rx.el.button(
+                        rx.icon("save", class_name="h-4 w-4"),
+                        "Save AI settings",
+                        on_click=ContentState.save_ai_settings,
+                        class_name="mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors",
+                    ),
+                    class_name="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl",
+                ),
+                rx.el.div(
                     _info_row(
                         "Connected channels",
                         ContentState.accounts.length().to_string() + " accounts",
@@ -149,6 +188,6 @@ def settings_view() -> rx.Component:
                     class_name="grid grid-cols-1 gap-3",
                 ),
             ),
-            class_name="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-5",
+            class_name="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-5 items-start",
         ),
     )
