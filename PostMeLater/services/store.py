@@ -79,6 +79,7 @@ def init_db() -> None:
                 provider text not null default 'gemini',
                 api_key text not null default '',
                 model text not null default '',
+                base_url text not null default '',
                 updated_at text not null
             );
 
@@ -125,6 +126,7 @@ def init_db() -> None:
         )
         _ensure_column(conn, "drafts", "user_id", "text not null default 'default'")
         _ensure_column(conn, "posts", "user_id", "text not null default 'default'")
+        _ensure_column(conn, "ai_settings", "base_url", "text not null default ''")
         _migrate_accounts_table(conn)
 
 
@@ -407,7 +409,11 @@ def delete_zernio_settings(user_id: str) -> None:
 
 
 def save_ai_settings(
-    user_id: str, api_key: str, model: str = "", provider: str = "gemini"
+    user_id: str,
+    api_key: str,
+    model: str = "",
+    provider: str = "gemini",
+    base_url: str = "",
 ) -> None:
     init_db()
     now = datetime.utcnow().isoformat()
@@ -415,10 +421,17 @@ def save_ai_settings(
         conn.execute(
             """
             insert or replace into ai_settings
-            (user_id, provider, api_key, model, updated_at)
-            values (?, ?, ?, ?, ?)
+            (user_id, provider, api_key, model, base_url, updated_at)
+            values (?, ?, ?, ?, ?, ?)
             """,
-            (user_id, provider.strip() or "gemini", api_key.strip(), model.strip(), now),
+            (
+                user_id,
+                provider.strip() or "gemini",
+                api_key.strip(),
+                model.strip(),
+                base_url.strip(),
+                now,
+            ),
         )
 
 
@@ -426,15 +439,16 @@ def get_ai_settings(user_id: str) -> dict[str, str]:
     init_db()
     with _connect() as conn:
         row = conn.execute(
-            "select provider, api_key, model from ai_settings where user_id = ?",
+            "select provider, api_key, model, base_url from ai_settings where user_id = ?",
             (user_id,),
         ).fetchone()
     if row is None:
-        return {"provider": "gemini", "api_key": "", "model": ""}
+        return {"provider": "gemini", "api_key": "", "model": "", "base_url": ""}
     return {
         "provider": row["provider"],
         "api_key": row["api_key"],
         "model": row["model"],
+        "base_url": row["base_url"],
     }
 
 
