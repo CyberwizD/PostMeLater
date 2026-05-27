@@ -28,13 +28,15 @@ def _extract_text(payload: dict) -> str:
     return text
 
 
-def generate_text(prompt: str) -> str:
+def generate_text(
+    prompt: str, api_key_override: str | None = None, model_override: str = ""
+) -> str:
     """Generate text using Gemini's REST API."""
-    api_key = get_setting("GEMINI_API_KEY")
+    api_key = api_key_override or get_setting("GEMINI_API_KEY")
     if not api_key:
         raise GeminiError("GEMINI_API_KEY is not configured.")
 
-    model = get_setting("GEMINI_MODEL", default="gemini-2.0-flash")
+    model = model_override or get_setting("GEMINI_MODEL", default="gemini-2.0-flash")
     url = f"{GEMINI_BASE_URL}/models/{model}:generateContent"
     body = {
         "contents": [{"parts": [{"text": prompt}]}],
@@ -55,6 +57,18 @@ def generate_text(prompt: str) -> str:
             timeout=30,
         )
         response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code
+        if status == 429:
+            raise GeminiError(
+                "Gemini quota or rate limit reached. Add your own Gemini API key in Settings or try again later."
+            ) from exc
+        if status in {401, 403}:
+            raise GeminiError(
+                "Gemini rejected the API key. Check the key saved in Settings."
+            ) from exc
+        logging.exception("Gemini request failed")
+        raise GeminiError("Gemini could not generate content right now.") from exc
     except httpx.HTTPError as exc:
         logging.exception("Gemini request failed")
         raise GeminiError("Gemini could not generate content right now.") from exc
@@ -95,4 +109,3 @@ def build_rewrite_prompt(content: str, instruction: str) -> str:
         "Return only the revised post text. Preserve the original meaning.\n\n"
         f"Post:\n{content}"
     )
-
