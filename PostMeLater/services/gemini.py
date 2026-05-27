@@ -12,6 +12,7 @@ from PostMeLater.services.config import get_setting
 GEMINI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta"
 OPENAI_BASE_URL = "https://api.openai.com/v1"
 ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1"
+OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 
 
 class GeminiError(RuntimeError):
@@ -25,6 +26,10 @@ def default_model(provider: str) -> str:
         return "gpt-5-mini"
     if provider == "anthropic":
         return "claude-sonnet-4-20250514"
+    if provider == "openrouter":
+        return "openai/gpt-5-mini"
+    if provider == "custom":
+        return "openai/gpt-4o-mini"
     return get_setting("GEMINI_MODEL", default="gemini-2.0-flash")
 
 
@@ -69,12 +74,32 @@ def _extract_anthropic_text(payload: dict) -> str:
     return text
 
 
+def _extract_chat_text(payload: dict, label: str) -> str:
+    choices = payload.get("choices", [])
+    if choices and isinstance(choices[0], dict):
+        message = choices[0].get("message") or {}
+        content = message.get("content") if isinstance(message, dict) else ""
+        if isinstance(content, list):
+            text = "\n".join(
+                str(part.get("text") or "")
+                for part in content
+                if isinstance(part, dict)
+            ).strip()
+        else:
+            text = str(content or "").strip()
+        if text:
+            return text
+    raise GeminiError(f"{label} returned an empty response.")
+
+
 def _raise_provider_error(provider: str, exc: httpx.HTTPStatusError) -> None:
     status = exc.response.status_code
     label = {
         "openai": "OpenAI",
         "anthropic": "Claude",
         "gemini": "Gemini",
+        "openrouter": "OpenRouter",
+        "custom": "Custom AI provider",
     }.get(provider, "AI provider")
     if status == 429:
         raise GeminiError(
@@ -93,6 +118,7 @@ def generate_text(
     api_key_override: str | None = None,
     model_override: str = "",
     provider: str = "gemini",
+    base_url: str = "",
 ) -> str:
     """Generate text using the configured AI provider."""
     provider = (provider or "gemini").lower().strip()
@@ -100,6 +126,22 @@ def generate_text(
         return _generate_openai(prompt, api_key_override, model_override)
     if provider == "anthropic":
         return _generate_anthropic(prompt, api_key_override, model_override)
+    if provider == "openrouter":
+        return _generate_openai_compatible(
+            prompt,
+            api_key_override,
+            model_override,
+            OPENROUTER_BASE_URL,
+            "openrouter",
+        )
+    if provider == "custom":
+        return _generate_openai_compatible(
+            prompt,
+            api_key_override,
+            model_override,
+            base_url,
+            "custom",
+        )
     return _generate_gemini(prompt, api_key_override, model_override)
 
 
@@ -198,6 +240,49 @@ def _generate_anthropic(
         logging.exception("Claude request failed")
         raise GeminiError("Claude could not generate content right now.") from exc
     return _extract_anthropic_text(response.json())
+
+
+def _generate_openai_compatible(
+    prompt: str,
+    api_key_override: str | None,
+    model_override: str,
+    base_url: str,
+    provider: str,
+) -> str:
+    label = "OpenRouter" if provider == "openrouter" else "Custom AI provider"
+    api_key = api_key_override or get_setting("OPENROUTER_API_KEY")
+    if not api_key:
+        raise GeminiError(f"{label} API key is not configured.")
+    root = (base_url or OPENROUTER_BASE_URL).rstrip("/")
+    if root.endswith("/chat/completions"):
+        url = root
+    else:
+        url = f"{root}/chat/completions"
+    model = model_override or default_model(provider)
+    try:
+        response = httpx.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": get_setting("APP_BASE_URL", "SITE_URL"),
+                "X-OpenRouter-Title": "PostMeLater",
+            },
+            json={
+                "model": model,
+                "messages": [{"role": "user", "content": prompt}],
+                "temperature": 0.8,
+                "max_tokens": 450,
+            },
+            timeout=45,
+        )
+        response.raise_for_status()
+    except httpx.HTTPStatusError as exc:
+        _raise_provider_error(provider, exc)
+    except httpx.HTTPError as exc:
+        logging.exception("%s request failed", label)
+        raise GeminiError(f"{label} could not generate content right now.") from exc
+    return _extract_chat_text(response.json(), label)
 
 
 def build_post_prompt(
