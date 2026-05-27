@@ -30,6 +30,28 @@ def _section(title: str, icon: str, *children: rx.Component) -> rx.Component:
     )
 
 
+def _integration_input(
+    label: str,
+    placeholder: str,
+    value,
+    on_change,
+    input_type: str = "text",
+) -> rx.Component:
+    return rx.el.div(
+        rx.el.label(
+            label,
+            class_name="text-xs font-semibold text-slate-600 mb-1.5 block",
+        ),
+        rx.el.input(
+            type=input_type,
+            placeholder=placeholder,
+            value=value,
+            on_change=on_change,
+            class_name="w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 text-slate-900 placeholder-slate-400",
+        ),
+    )
+
+
 def settings_view() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -75,6 +97,47 @@ def settings_view() -> rx.Component:
             _section(
                 "Integrations",
                 "plug",
+                rx.el.div(
+                    rx.el.div(
+                        rx.el.span(
+                            ContentState.zernio_status_label,
+                            class_name=rx.cond(
+                                ContentState.zernio_key_saved,
+                                "text-xs font-semibold text-emerald-700 bg-emerald-50 px-2 py-1 rounded-md",
+                                "text-xs font-semibold text-amber-700 bg-amber-50 px-2 py-1 rounded-md",
+                            ),
+                        ),
+                        rx.el.p(
+                            ContentState.zernio_status_detail,
+                            class_name="text-xs text-slate-500 mt-2",
+                        ),
+                        class_name="mb-4",
+                    ),
+                    _integration_input(
+                        "Zernio API key",
+                        rx.cond(
+                            ContentState.zernio_key_saved,
+                            "Leave blank to keep saved key",
+                            "Paste your Zernio API key",
+                        ),
+                        ContentState.zernio_api_key_input,
+                        ContentState.set_zernio_api_key_input,
+                        "password",
+                    ),
+                    _integration_input(
+                        "Zernio profile ID",
+                        "Optional",
+                        ContentState.zernio_profile_id_input,
+                        ContentState.set_zernio_profile_id_input,
+                    ),
+                    rx.el.button(
+                        rx.icon("save", class_name="h-4 w-4"),
+                        "Save Zernio settings",
+                        on_click=ContentState.save_zernio_settings,
+                        class_name="mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors",
+                    ),
+                    class_name="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl",
+                ),
                 rx.el.div(
                     _info_row("Publishing", "Zernio", "send"),
                     _info_row("AI engine", "Gemini", "sparkles"),
