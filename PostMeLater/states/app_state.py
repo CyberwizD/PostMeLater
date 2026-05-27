@@ -15,6 +15,7 @@ class AppState(rx.State):
     mobile_nav_open: bool = False
     auth_error: str = ""
     auth_email: str = ""
+    user_id: str = ""
     user_name: str = "PostMeLater user"
     user_email: str = ""
     user_avatar: str = ""
@@ -64,6 +65,7 @@ class AppState(rx.State):
             return rx.toast(str(exc))
 
     def _apply_user(self, user: dict):
+        self.user_id = user.get("id") or ""
         self.user_name = user.get("name") or "PostMeLater user"
         self.user_email = user.get("email") or ""
         self.user_avatar = user.get("avatar_url") or (
