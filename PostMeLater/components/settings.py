@@ -95,6 +95,12 @@ def settings_view() -> rx.Component:
                 rx.el.div(
                     _info_row("Default timezone", "Africa/Lagos", "clock"),
                     _info_row("Account mode", "Personal use", "user-check"),
+                    _info_row("AI engine", ContentState.ai_engine_label, "sparkles"),
+                    _info_row(
+                        "Connected channels",
+                        ContentState.accounts.length().to_string() + " accounts",
+                        "users",
+                    ),
                     class_name="grid grid-cols-1 sm:grid-cols-2 gap-3",
                 ),
             ),
@@ -212,15 +218,6 @@ def settings_view() -> rx.Component:
                         class_name="mt-3 flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 transition-colors",
                     ),
                     class_name="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl",
-                ),
-                rx.el.div(
-                    _info_row("AI engine", ContentState.ai_engine_label, "sparkles"),
-                    _info_row(
-                        "Connected channels",
-                        ContentState.accounts.length().to_string() + " accounts",
-                        "users",
-                    ),
-                    class_name="grid grid-cols-1 gap-3",
                 ),
             ),
             class_name="grid grid-cols-1 xl:grid-cols-[1fr_420px] gap-5 items-start",
