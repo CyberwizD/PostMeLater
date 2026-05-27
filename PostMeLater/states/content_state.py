@@ -556,6 +556,7 @@ class ContentState(rx.State):
     edit_date: str = ""
     edit_time: str = ""
     edit_account: str = ""
+    zernio_help_open: bool = False
 
     def _owner_id(self) -> str:
         return self.user_id or "default"
@@ -675,6 +676,14 @@ class ContentState(rx.State):
     @rx.event
     def set_zernio_profile_id_input(self, value: str):
         self.zernio_profile_id_input = value
+
+    @rx.event
+    def open_zernio_help(self):
+        self.zernio_help_open = True
+
+    @rx.event
+    def close_zernio_help(self):
+        self.zernio_help_open = False
 
     @rx.event
     def set_ai_api_key_input(self, value: str):
