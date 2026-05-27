@@ -494,6 +494,36 @@ def _post_text(post: dict[str, Any]) -> str:
     return str(content)
 
 
+def _zernio_post_id(post: dict[str, Any]) -> str:
+    return str(post.get("_id") or post.get("id") or post.get("postId") or "")
+
+
+def _zernio_error(post: dict[str, Any], status: str) -> str:
+    if status != "partial":
+        return str(post.get("error") or post.get("message") or "")
+    failed = []
+    for target in post.get("platforms", []):
+        if not isinstance(target, dict):
+            continue
+        if str(target.get("status") or "").lower() == "failed":
+            platform = target.get("platform") or "platform"
+            error = target.get("error") or "failed"
+            failed.append(f"{platform}: {error}")
+    detail = "; ".join(failed)
+    return detail or "Partially published in Zernio. Check failed platforms."
+
+
+def _local_status_from_zernio(post: dict[str, Any]) -> tuple[str, str]:
+    status = str(post.get("status") or "").lower()
+    if status == "published":
+        return "posted", ""
+    if status in {"failed", "partial"}:
+        return "failed", _zernio_error(post, status)
+    if status in {"draft", "scheduled", "publishing", "queued", "pending"}:
+        return "scheduled", ""
+    return "", ""
+
+
 class ContentState(rx.State):
     user_id: str = "default"
     topic: str = ""
@@ -665,6 +695,57 @@ class ContentState(rx.State):
             logging.exception("Could not sync Zernio accounts")
             self.api_notice = "Could not sync Zernio accounts."
 
+    def _sync_post_statuses_from_zernio(self) -> int:
+        api_key = self._zernio_api_key()
+        if not api_key:
+            return 0
+        tracked = [
+            post
+            for post in self.scheduled_posts
+            if post.get("zernio_post_id", "")
+            and post.get("status") in {"scheduled", "failed"}
+        ]
+        if not tracked:
+            return 0
+        updated = 0
+        remote_by_id: dict[str, dict[str, Any]] = {}
+        try:
+            for remote in zernio.list_posts(
+                limit=100, api_key_override=api_key
+            ):
+                remote_id = _zernio_post_id(remote)
+                if remote_id:
+                    remote_by_id[remote_id] = remote
+        except Exception:
+            logging.exception("Could not list Zernio posts for status sync")
+
+        for local in tracked:
+            remote_id = local.get("zernio_post_id", "")
+            remote = remote_by_id.get(remote_id)
+            if remote is None:
+                try:
+                    remote = zernio.get_post(
+                        remote_id, api_key_override=api_key
+                    )
+                except Exception:
+                    logging.exception("Could not fetch Zernio post %s", remote_id)
+                    continue
+            next_status, error = _local_status_from_zernio(remote)
+            if not next_status:
+                continue
+            if (
+                next_status != local.get("status")
+                or error != local.get("error", "")
+            ):
+                store.save_post(
+                    {**local, "status": next_status, "error": error},
+                    self._owner_id(),
+                )
+                updated += 1
+        if updated:
+            self._reload_from_store()
+        return updated
+
     @rx.event
     def set_connect_platform(self, platform: str):
         self.connect_platform = platform
@@ -739,9 +820,18 @@ class ContentState(rx.State):
     @rx.event
     def refresh_accounts(self):
         self._sync_accounts_from_zernio()
+        self._sync_post_statuses_from_zernio()
         if self.accounts:
             return rx.toast("Connected accounts refreshed")
         return rx.toast("No connected accounts found")
+
+    @rx.event
+    def refresh_post_statuses(self):
+        self._reload_from_store()
+        updated = self._sync_post_statuses_from_zernio()
+        if updated:
+            return rx.toast(f"Updated {updated} post status(es) from Zernio")
+        return rx.toast("No status changes from Zernio")
 
     @rx.event
     def connect_account(self):
@@ -1257,12 +1347,13 @@ class ContentState(rx.State):
                         platforms=targets,
                         api_key_override=api_key,
                     )
-                    zernio_post_id = str(
-                        response.get("_id")
-                        or response.get("id")
-                        or response.get("postId")
-                        or ""
+                    zernio_post_id = _zernio_post_id(response)
+                    remote_status, remote_error = _local_status_from_zernio(
+                        response
                     )
+                    if remote_status:
+                        status = remote_status
+                        error = remote_error
             except Exception as exc:
                 logging.exception("Zernio schedule failed")
                 status = "failed"
@@ -1677,6 +1768,7 @@ class ContentState(rx.State):
         self._load_ai_settings()
         self._reload_from_store()
         self._sync_accounts_from_zernio()
+        self._sync_post_statuses_from_zernio()
         self._reload_from_store()
         self.seeded = True
 
