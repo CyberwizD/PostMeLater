@@ -197,6 +197,12 @@ def list_posts(
     return list(posts) if isinstance(posts, list) else []
 
 
+def get_post(post_id: str, api_key_override: str | None = None) -> dict[str, Any]:
+    """Fetch a single Zernio post."""
+    data = _request("GET", f"/posts/{post_id}", api_key_override=api_key_override)
+    return data.get("post") or data.get("data") or data
+
+
 def get_analytics(
     *,
     limit: int = 50,
