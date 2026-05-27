@@ -58,6 +58,7 @@ def init_db() -> None:
 
             create table if not exists accounts (
                 id text primary key,
+                user_id text not null default 'default',
                 platform text not null,
                 username text not null default '',
                 display_name text not null default '',
@@ -65,6 +66,61 @@ def init_db() -> None:
                 raw_json text not null default '{}',
                 updated_at text not null
             );
+
+            create table if not exists zernio_settings (
+                user_id text primary key,
+                api_key text not null default '',
+                profile_id text not null default '',
+                updated_at text not null
+            );
+            """
+        )
+        _ensure_column(conn, "drafts", "user_id", "text not null default 'default'")
+        _ensure_column(conn, "posts", "user_id", "text not null default 'default'")
+        _migrate_accounts_table(conn)
+
+
+def _ensure_column(
+    conn: sqlite3.Connection, table: str, column: str, definition: str
+) -> None:
+    columns = {row["name"] for row in conn.execute(f"pragma table_info({table})")}
+    if column not in columns:
+        conn.execute(f"alter table {table} add column {column} {definition}")
+
+
+def _migrate_accounts_table(conn: sqlite3.Connection) -> None:
+    rows = conn.execute("pragma table_info(accounts)").fetchall()
+    columns = {row["name"] for row in rows}
+    pk_columns = [row["name"] for row in rows if row["pk"]]
+    if columns and pk_columns != ["user_id", "id"]:
+        conn.executescript(
+            """
+            create table if not exists accounts_new (
+                user_id text not null default 'default',
+                id text not null,
+                platform text not null,
+                username text not null default '',
+                display_name text not null default '',
+                profile_id text not null default '',
+                raw_json text not null default '{}',
+                updated_at text not null,
+                primary key (user_id, id)
+            );
+            """
+        )
+        source_user = "user_id" if "user_id" in columns else "'default'"
+        conn.execute(
+            f"""
+            insert or ignore into accounts_new
+            (user_id, id, platform, username, display_name, profile_id, raw_json, updated_at)
+            select {source_user}, id, platform, username, display_name, profile_id, raw_json, updated_at
+            from accounts
+            """
+        )
+        conn.executescript(
+            """
+            drop table accounts;
+            alter table accounts_new rename to accounts;
             """
         )
 
@@ -79,11 +135,12 @@ def _loads_list(value: str | None) -> list[str]:
     return list(data) if isinstance(data, list) else []
 
 
-def list_drafts() -> list[dict[str, Any]]:
+def list_drafts(user_id: str = "default") -> list[dict[str, Any]]:
     init_db()
     with _connect() as conn:
         rows = conn.execute(
-            "select * from drafts order by created_at desc"
+            "select * from drafts where user_id = ? order by created_at desc",
+            (user_id,),
         ).fetchall()
     return [
         {
@@ -100,17 +157,18 @@ def list_drafts() -> list[dict[str, Any]]:
     ]
 
 
-def save_draft(draft: dict[str, Any]) -> None:
+def save_draft(draft: dict[str, Any], user_id: str = "default") -> None:
     init_db()
     with _connect() as conn:
         conn.execute(
             """
             insert or replace into drafts
-            (id, body, topic, audience, keywords, tone, platforms_json, created_at)
-            values (?, ?, ?, ?, ?, ?, ?, ?)
+            (id, user_id, body, topic, audience, keywords, tone, platforms_json, created_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 draft["id"],
+                user_id,
                 draft["body"],
                 draft.get("topic", ""),
                 draft.get("audience", ""),
@@ -122,17 +180,20 @@ def save_draft(draft: dict[str, Any]) -> None:
         )
 
 
-def delete_draft(draft_id: str) -> None:
+def delete_draft(draft_id: str, user_id: str = "default") -> None:
     init_db()
     with _connect() as conn:
-        conn.execute("delete from drafts where id = ?", (draft_id,))
+        conn.execute(
+            "delete from drafts where id = ? and user_id = ?", (draft_id, user_id)
+        )
 
 
-def list_posts() -> list[dict[str, Any]]:
+def list_posts(user_id: str = "default") -> list[dict[str, Any]]:
     init_db()
     with _connect() as conn:
         rows = conn.execute(
-            "select * from posts order by scheduled_at asc, created_at desc"
+            "select * from posts where user_id = ? order by scheduled_at asc, created_at desc",
+            (user_id,),
         ).fetchall()
     return [
         {
@@ -155,25 +216,27 @@ def list_posts() -> list[dict[str, Any]]:
     ]
 
 
-def save_post(post: dict[str, Any]) -> None:
+def save_post(post: dict[str, Any], user_id: str = "default") -> None:
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
         existing = conn.execute(
-            "select created_at from posts where id = ?", (post["id"],)
+            "select created_at from posts where id = ? and user_id = ?",
+            (post["id"], user_id),
         ).fetchone()
         conn.execute(
             """
             insert or replace into posts
             (
-                id, zernio_post_id, body, platforms_json, account, account_id,
+                id, user_id, zernio_post_id, body, platforms_json, account, account_id,
                 scheduled_at, scheduled_date, scheduled_time, cadence, status,
                 tone, engagement, error, created_at, updated_at
             )
-            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 post["id"],
+                user_id,
                 post.get("zernio_post_id", ""),
                 post["body"],
                 json.dumps(post.get("platforms", [])),
@@ -193,17 +256,17 @@ def save_post(post: dict[str, Any]) -> None:
         )
 
 
-def delete_post(post_id: str) -> None:
+def delete_post(post_id: str, user_id: str = "default") -> None:
     init_db()
     with _connect() as conn:
-        conn.execute("delete from posts where id = ?", (post_id,))
+        conn.execute("delete from posts where id = ? and user_id = ?", (post_id, user_id))
 
 
-def save_accounts(accounts: list[dict[str, Any]]) -> None:
+def save_accounts(accounts: list[dict[str, Any]], user_id: str = "default") -> None:
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
-        conn.execute("delete from accounts")
+        conn.execute("delete from accounts where user_id = ?", (user_id,))
         for account in accounts:
             account_id = str(
                 account.get("_id")
@@ -226,10 +289,11 @@ def save_accounts(accounts: list[dict[str, Any]]) -> None:
             conn.execute(
                 """
                 insert or replace into accounts
-                (id, platform, username, display_name, profile_id, raw_json, updated_at)
-                values (?, ?, ?, ?, ?, ?, ?)
+                (user_id, id, platform, username, display_name, profile_id, raw_json, updated_at)
+                values (?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
+                    user_id,
                     account_id,
                     str(account.get("platform") or ""),
                     username,
@@ -241,11 +305,12 @@ def save_accounts(accounts: list[dict[str, Any]]) -> None:
             )
 
 
-def list_accounts() -> list[dict[str, Any]]:
+def list_accounts(user_id: str = "default") -> list[dict[str, Any]]:
     init_db()
     with _connect() as conn:
         rows = conn.execute(
-            "select * from accounts order by platform asc, username asc"
+            "select * from accounts where user_id = ? order by platform asc, username asc",
+            (user_id,),
         ).fetchall()
     return [
         {
@@ -257,3 +322,37 @@ def list_accounts() -> list[dict[str, Any]]:
         }
         for row in rows
     ]
+
+
+def save_zernio_settings(
+    user_id: str, api_key: str, profile_id: str = ""
+) -> None:
+    init_db()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            insert or replace into zernio_settings
+            (user_id, api_key, profile_id, updated_at)
+            values (?, ?, ?, ?)
+            """,
+            (user_id, api_key.strip(), profile_id.strip(), now),
+        )
+
+
+def get_zernio_settings(user_id: str) -> dict[str, str]:
+    init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "select api_key, profile_id from zernio_settings where user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return {"api_key": "", "profile_id": ""}
+    return {"api_key": row["api_key"], "profile_id": row["profile_id"]}
+
+
+def delete_zernio_settings(user_id: str) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute("delete from zernio_settings where user_id = ?", (user_id,))
