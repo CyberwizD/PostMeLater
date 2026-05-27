@@ -73,6 +73,46 @@ def init_db() -> None:
                 profile_id text not null default '',
                 updated_at text not null
             );
+
+            create table if not exists ideas (
+                user_id text not null default 'default',
+                id text not null,
+                title text not null default '',
+                notes text not null default '',
+                status text not null default 'inbox',
+                source text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                primary key (user_id, id)
+            );
+
+            create table if not exists content_templates (
+                user_id text not null default 'default',
+                id text not null,
+                name text not null default '',
+                prompt text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                primary key (user_id, id)
+            );
+
+            create table if not exists campaigns (
+                user_id text not null default 'default',
+                id text not null,
+                name text not null default '',
+                goal text not null default '',
+                created_at text not null,
+                updated_at text not null,
+                primary key (user_id, id)
+            );
+
+            create table if not exists brand_settings (
+                user_id text primary key,
+                voice text not null default '',
+                audience text not null default '',
+                keywords text not null default '',
+                updated_at text not null
+            );
             """
         )
         _ensure_column(conn, "drafts", "user_id", "text not null default 'default'")
@@ -356,3 +396,182 @@ def delete_zernio_settings(user_id: str) -> None:
     init_db()
     with _connect() as conn:
         conn.execute("delete from zernio_settings where user_id = ?", (user_id,))
+
+
+def list_ideas(user_id: str = "default") -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            "select * from ideas where user_id = ? order by created_at desc",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_idea(idea: dict[str, Any], user_id: str = "default") -> None:
+    init_db()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        existing = conn.execute(
+            "select created_at from ideas where id = ? and user_id = ?",
+            (idea["id"], user_id),
+        ).fetchone()
+        conn.execute(
+            """
+            insert or replace into ideas
+            (user_id, id, title, notes, status, source, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                idea["id"],
+                idea.get("title", ""),
+                idea.get("notes", ""),
+                idea.get("status", "inbox"),
+                idea.get("source", ""),
+                existing["created_at"] if existing else now,
+                now,
+            ),
+        )
+
+
+def delete_idea(idea_id: str, user_id: str = "default") -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute("delete from ideas where id = ? and user_id = ?", (idea_id, user_id))
+
+
+def update_idea_status(
+    idea_id: str, status: str, user_id: str = "default"
+) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "update ideas set status = ?, updated_at = ? where id = ? and user_id = ?",
+            (status, datetime.utcnow().isoformat(), idea_id, user_id),
+        )
+
+
+def list_templates(user_id: str = "default") -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            "select * from content_templates where user_id = ? order by created_at desc",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_template(template: dict[str, Any], user_id: str = "default") -> None:
+    init_db()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        existing = conn.execute(
+            "select created_at from content_templates where id = ? and user_id = ?",
+            (template["id"], user_id),
+        ).fetchone()
+        conn.execute(
+            """
+            insert or replace into content_templates
+            (user_id, id, name, prompt, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                template["id"],
+                template.get("name", ""),
+                template.get("prompt", ""),
+                existing["created_at"] if existing else now,
+                now,
+            ),
+        )
+
+
+def delete_template(template_id: str, user_id: str = "default") -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "delete from content_templates where id = ? and user_id = ?",
+            (template_id, user_id),
+        )
+
+
+def list_campaigns(user_id: str = "default") -> list[dict[str, Any]]:
+    init_db()
+    with _connect() as conn:
+        rows = conn.execute(
+            "select * from campaigns where user_id = ? order by created_at desc",
+            (user_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def save_campaign(campaign: dict[str, Any], user_id: str = "default") -> None:
+    init_db()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        existing = conn.execute(
+            "select created_at from campaigns where id = ? and user_id = ?",
+            (campaign["id"], user_id),
+        ).fetchone()
+        conn.execute(
+            """
+            insert or replace into campaigns
+            (user_id, id, name, goal, created_at, updated_at)
+            values (?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                campaign["id"],
+                campaign.get("name", ""),
+                campaign.get("goal", ""),
+                existing["created_at"] if existing else now,
+                now,
+            ),
+        )
+
+
+def delete_campaign(campaign_id: str, user_id: str = "default") -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            "delete from campaigns where id = ? and user_id = ?",
+            (campaign_id, user_id),
+        )
+
+
+def get_brand_settings(user_id: str = "default") -> dict[str, str]:
+    init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "select voice, audience, keywords from brand_settings where user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return {"voice": "", "audience": "", "keywords": ""}
+    return {
+        "voice": row["voice"],
+        "audience": row["audience"],
+        "keywords": row["keywords"],
+    }
+
+
+def save_brand_settings(
+    user_id: str, voice: str, audience: str, keywords: str
+) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute(
+            """
+            insert or replace into brand_settings
+            (user_id, voice, audience, keywords, updated_at)
+            values (?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                voice.strip(),
+                audience.strip(),
+                keywords.strip(),
+                datetime.utcnow().isoformat(),
+            ),
+        )
