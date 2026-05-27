@@ -361,6 +361,7 @@ def _seed_drafts() -> list[Draft]:
 
 
 class ContentState(rx.State):
+    user_id: str = "default"
     topic: str = ""
     audience: str = ""
     keywords: str = ""
@@ -375,6 +376,9 @@ class ContentState(rx.State):
     accounts: list[ConnectedAccount] = []
     seeded: bool = False
     api_notice: str = ""
+    zernio_api_key_input: str = ""
+    zernio_profile_id_input: str = ""
+    zernio_key_saved: bool = False
 
     schedule_date: str = ""
     schedule_time: str = "09:00"
@@ -393,10 +397,27 @@ class ContentState(rx.State):
     edit_time: str = ""
     edit_account: str = ""
 
+    def _owner_id(self) -> str:
+        return self.user_id or "default"
+
+    def _load_zernio_settings(self):
+        settings = store.get_zernio_settings(self._owner_id())
+        self.zernio_key_saved = bool(settings.get("api_key"))
+        self.zernio_profile_id_input = settings.get("profile_id", "")
+
+    def _zernio_settings(self) -> dict[str, str]:
+        return store.get_zernio_settings(self._owner_id())
+
+    def _zernio_api_key(self) -> str:
+        return self._zernio_settings().get("api_key", "")
+
+    def _zernio_profile_id(self) -> str:
+        return self._zernio_settings().get("profile_id", "")
+
     def _reload_from_store(self):
-        self.drafts = store.list_drafts()
-        self.scheduled_posts = store.list_posts()
-        self.accounts = store.list_accounts()
+        self.drafts = store.list_drafts(self._owner_id())
+        self.scheduled_posts = store.list_posts(self._owner_id())
+        self.accounts = store.list_accounts(self._owner_id())
         self._sync_selected_platforms()
         if not self.schedule_date:
             self.schedule_date = datetime.now().strftime("%Y-%m-%d")
@@ -424,51 +445,22 @@ class ContentState(rx.State):
             self.selected_platforms = list(available)
 
     def _sync_accounts_from_zernio(self):
-        if not zernio.configured():
-            fallback_account_id = zernio.default_account_id()
-            if fallback_account_id and not self.accounts:
-                fallback_platform = get_setting(
-                    "ZERNIO_PLATFORM", "LATE_PLATFORM", default="twitter"
-                )
-                self.accounts = [
-                    ConnectedAccount(
-                        id=fallback_account_id,
-                        platform=fallback_platform,
-                        username="",
-                        display_name=f"{fallback_platform.title()} account",
-                        profile_id="",
-                    )
-                ]
-                store.save_accounts(self.accounts)
-                self._sync_selected_platforms()
-            self.api_notice = "Zernio API key is not configured."
+        api_key = self._zernio_api_key()
+        if not api_key:
+            self.accounts = []
+            store.save_accounts([], self._owner_id())
+            self._sync_selected_platforms()
+            self.api_notice = "Add your Zernio API key in Settings."
             return
         try:
-            accounts = zernio.list_accounts()
-            store.save_accounts(accounts)
-            self.accounts = store.list_accounts()
+            accounts = zernio.list_accounts(api_key_override=api_key)
+            store.save_accounts(accounts, self._owner_id())
+            self.accounts = store.list_accounts(self._owner_id())
             self._sync_selected_platforms()
             if not self.schedule_account and self.accounts:
                 self.schedule_account = self.accounts[0]["id"]
             if accounts:
                 self.api_notice = ""
-            elif zernio.default_account_id() and not self.accounts:
-                fallback_platform = get_setting(
-                    "ZERNIO_PLATFORM", "LATE_PLATFORM", default="twitter"
-                )
-                self.accounts = [
-                    ConnectedAccount(
-                        id=zernio.default_account_id(),
-                        platform=fallback_platform,
-                        username="",
-                        display_name=f"{fallback_platform.title()} account",
-                        profile_id="",
-                    )
-                ]
-                store.save_accounts(self.accounts)
-                self._sync_selected_platforms()
-                self.schedule_account = self.accounts[0]["id"]
-                self.api_notice = "Using ACCOUNT_ID fallback; connected accounts were not returned."
             else:
                 self.api_notice = "No connected Zernio accounts yet."
         except Exception:
@@ -480,6 +472,28 @@ class ContentState(rx.State):
         self.connect_platform = platform
 
     @rx.event
+    def set_zernio_api_key_input(self, value: str):
+        self.zernio_api_key_input = value
+
+    @rx.event
+    def set_zernio_profile_id_input(self, value: str):
+        self.zernio_profile_id_input = value
+
+    @rx.event
+    def save_zernio_settings(self):
+        existing = self._zernio_settings()
+        api_key = self.zernio_api_key_input.strip() or existing.get("api_key", "")
+        if not api_key:
+            return rx.toast("Paste your Zernio API key first.")
+        store.save_zernio_settings(
+            self._owner_id(), api_key, self.zernio_profile_id_input
+        )
+        self.zernio_api_key_input = ""
+        self._load_zernio_settings()
+        self._sync_accounts_from_zernio()
+        return rx.toast("Zernio settings saved")
+
+    @rx.event
     def refresh_accounts(self):
         self._sync_accounts_from_zernio()
         if self.accounts:
@@ -488,7 +502,8 @@ class ContentState(rx.State):
 
     @rx.event
     def connect_account(self):
-        if not zernio.configured():
+        api_key = self._zernio_api_key()
+        if not api_key:
             return rx.toast("Add your Zernio API key before connecting accounts.")
         redirect_url = get_setting(
             "APP_BASE_URL",
@@ -497,7 +512,12 @@ class ContentState(rx.State):
             default="http://localhost:3000",
         ).rstrip("/")
         try:
-            auth_url = zernio.get_connect_url(self.connect_platform, redirect_url)
+            auth_url = zernio.get_connect_url(
+                self.connect_platform,
+                redirect_url,
+                api_key_override=api_key,
+                profile_id=self._zernio_profile_id(),
+            )
         except zernio.ZernioError as exc:
             return rx.toast(str(exc))
         return rx.call_script(f"window.location.assign({json.dumps(auth_url)})")
@@ -530,14 +550,6 @@ class ContentState(rx.State):
                     (a for a in self.accounts if a["platform"] == platform),
                     None,
                 )
-            if match is None and zernio.default_account_id() and not self.accounts:
-                match = ConnectedAccount(
-                    id=zernio.default_account_id(),
-                    platform=platform,
-                    username="",
-                    display_name="Configured account",
-                    profile_id="",
-                )
             if match is None:
                 missing.append(platform_label)
                 continue
@@ -545,15 +557,12 @@ class ContentState(rx.State):
         return targets, missing
 
     def _save_and_reload_post(self, post: ScheduledPost):
-        store.save_post(post)
+        store.save_post(post, self._owner_id())
         self._reload_from_store()
 
     @rx.var
     def account_options(self) -> list[AccountOption]:
         if not self.accounts:
-            fallback = zernio.default_account_id()
-            if fallback:
-                return [AccountOption(value=fallback, label="Configured account")]
             return [AccountOption(value="", label="No connected accounts")]
         return [
             AccountOption(
@@ -566,6 +575,16 @@ class ContentState(rx.State):
     @rx.var
     def connected_platform_options(self) -> list[str]:
         return self._connected_platform_labels()
+
+    @rx.var
+    def zernio_status_label(self) -> str:
+        return "Configured" if self.zernio_key_saved else "Not configured"
+
+    @rx.var
+    def zernio_status_detail(self) -> str:
+        if self.zernio_key_saved:
+            return "Your saved Zernio API key is used for this workspace."
+        return "Add your own Zernio API key to connect and schedule accounts."
 
     @rx.var
     def char_count(self) -> int:
@@ -822,7 +841,7 @@ class ContentState(rx.State):
             "platforms": list(self.selected_platforms),
             "created_at": datetime.now().strftime("%b %d, %Y · %I:%M %p"),
         }
-        store.save_draft(draft)
+        store.save_draft(draft, self._owner_id())
         self._reload_from_store()
         return rx.toast("Draft saved")
 
@@ -842,7 +861,7 @@ class ContentState(rx.State):
 
     @rx.event
     def delete_draft(self, draft_id: str):
-        store.delete_draft(draft_id)
+        store.delete_draft(draft_id, self._owner_id())
         self._reload_from_store()
 
     @rx.event
@@ -949,11 +968,13 @@ class ContentState(rx.State):
             status = "scheduled"
             error = ""
             try:
-                if zernio.configured():
+                api_key = self._zernio_api_key()
+                if api_key:
                     response = zernio.create_post(
                         content=body,
                         scheduled_for=dt.isoformat(),
                         platforms=targets,
+                        api_key_override=api_key,
                     )
                     zernio_post_id = str(
                         response.get("_id")
@@ -973,7 +994,7 @@ class ContentState(rx.State):
                 status=status,
                 error=error,
             )
-            store.save_post(post)
+            store.save_post(post, self._owner_id())
             new_posts.append(post)
         self._reload_from_store()
         self.post_body = ""
@@ -994,11 +1015,13 @@ class ContentState(rx.State):
         zernio_post_id = post.get("zernio_post_id", "")
         if zernio_post_id:
             try:
-                zernio.delete_post(zernio_post_id)
+                zernio.delete_post(
+                    zernio_post_id, api_key_override=self._zernio_api_key()
+                )
             except Exception:
                 logging.exception("Zernio delete failed")
                 return rx.toast("Could not delete this post in Zernio.")
-        store.delete_post(post_id)
+        store.delete_post(post_id, self._owner_id())
         self._reload_from_store()
         return rx.toast("Post removed")
 
@@ -1010,13 +1033,17 @@ class ContentState(rx.State):
                 continue
             try:
                 if post.get("zernio_post_id", ""):
-                    zernio.retry_post(post["zernio_post_id"])
+                    zernio.retry_post(
+                        post["zernio_post_id"],
+                        api_key_override=self._zernio_api_key(),
+                    )
                 store.save_post(
                     {
                         **post,
                         "status": "scheduled",
                         "error": "",
-                    }
+                    },
+                    self._owner_id(),
                 )
                 updated = True
             except Exception:
@@ -1030,7 +1057,9 @@ class ContentState(rx.State):
     def mark_posted(self, post_id: str):
         for post in self.scheduled_posts:
             if post["id"] == post_id:
-                store.save_post({**post, "status": "posted", "error": ""})
+                store.save_post(
+                    {**post, "status": "posted", "error": ""}, self._owner_id()
+                )
                 self._reload_from_store()
                 return
 
@@ -1038,7 +1067,7 @@ class ContentState(rx.State):
     def mark_failed(self, post_id: str):
         for post in self.scheduled_posts:
             if post["id"] == post_id:
-                store.save_post({**post, "status": "failed"})
+                store.save_post({**post, "status": "failed"}, self._owner_id())
                 self._reload_from_store()
                 return
 
@@ -1051,10 +1080,16 @@ class ContentState(rx.State):
         self.queue_account_filter = v
 
     @rx.event
-    def init_seed(self):
-        if self.seeded:
+    async def init_seed(self):
+        from PostMeLater.states.app_state import AppState
+
+        app_state = await self.get_state(AppState)
+        next_user_id = app_state.user_id or app_state.user_email or "default"
+        if self.seeded and self.user_id == next_user_id:
             return
+        self.user_id = next_user_id
         store.init_db()
+        self._load_zernio_settings()
         self._reload_from_store()
         self._sync_accounts_from_zernio()
         self._reload_from_store()
@@ -1116,6 +1151,7 @@ class ContentState(rx.State):
                 zernio.update_post(
                     post_id=post["zernio_post_id"],
                     scheduled_for=dt.isoformat(),
+                    api_key_override=self._zernio_api_key(),
                 )
             except Exception:
                 logging.exception("Zernio edit failed")
@@ -1130,7 +1166,8 @@ class ContentState(rx.State):
                 "account_id": self.edit_account,
                 "status": "scheduled",
                 "error": "",
-            }
+            },
+            self._owner_id(),
         )
         self._reload_from_store()
         self.edit_modal_open = False
