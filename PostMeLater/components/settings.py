@@ -1,6 +1,10 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
-from PostMeLater.states.content_state import ContentState
+from PostMeLater.states.content_state import AI_PROVIDER_OPTIONS, ContentState
+
+
+def _provider_option(provider: str) -> rx.Component:
+    return rx.el.option(provider, value=provider)
 
 
 def _info_row(label: str, value: str, icon: str) -> rx.Component:
@@ -154,20 +158,40 @@ def settings_view() -> rx.Component:
                         ),
                         class_name="mb-4",
                     ),
+                    rx.el.div(
+                        rx.el.label(
+                            "AI provider",
+                            class_name="text-xs font-semibold text-slate-600 mb-1.5 block",
+                        ),
+                        rx.el.div(
+                            rx.el.select(
+                                rx.foreach(AI_PROVIDER_OPTIONS, _provider_option),
+                                value=ContentState.ai_provider_input,
+                                on_change=ContentState.set_ai_provider_input,
+                                class_name="w-full px-3 py-2 pr-9 bg-white border border-slate-200 rounded-lg text-sm appearance-none cursor-pointer text-slate-900",
+                            ),
+                            rx.icon(
+                                "chevron-down",
+                                class_name="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400 pointer-events-none",
+                            ),
+                            class_name="relative",
+                        ),
+                        class_name="mb-3",
+                    ),
                     _integration_input(
-                        "Gemini API key",
+                        "AI API key",
                         rx.cond(
                             ContentState.ai_key_saved,
                             "Leave blank to keep saved key",
-                            "Optional: paste your own Gemini API key",
+                            "Optional: paste your own provider API key",
                         ),
                         ContentState.ai_api_key_input,
                         ContentState.set_ai_api_key_input,
                         "password",
                     ),
                     _integration_input(
-                        "Gemini model",
-                        "gemini-2.0-flash",
+                        "AI model",
+                        "Model name for the selected provider",
                         ContentState.ai_model_input,
                         ContentState.set_ai_model_input,
                     ),
@@ -180,6 +204,7 @@ def settings_view() -> rx.Component:
                     class_name="mb-5 p-4 bg-slate-50 border border-slate-200 rounded-xl",
                 ),
                 rx.el.div(
+                    _info_row("AI engine", ContentState.ai_engine_label, "sparkles"),
                     _info_row(
                         "Connected channels",
                         ContentState.accounts.length().to_string() + " accounts",
