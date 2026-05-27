@@ -492,6 +492,9 @@ class ContentState(rx.State):
     zernio_api_key_input: str = ""
     zernio_profile_id_input: str = ""
     zernio_key_saved: bool = False
+    ai_api_key_input: str = ""
+    ai_model_input: str = ""
+    ai_key_saved: bool = False
 
     ideas: list[IdeaItem] = []
     templates: list[ContentTemplate] = []
@@ -539,6 +542,11 @@ class ContentState(rx.State):
         self.zernio_key_saved = bool(settings.get("api_key"))
         self.zernio_profile_id_input = settings.get("profile_id", "")
 
+    def _load_ai_settings(self):
+        settings = store.get_ai_settings(self._owner_id())
+        self.ai_key_saved = bool(settings.get("api_key"))
+        self.ai_model_input = settings.get("model", "") or "gemini-2.0-flash"
+
     def _zernio_settings(self) -> dict[str, str]:
         return store.get_zernio_settings(self._owner_id())
 
@@ -547,6 +555,15 @@ class ContentState(rx.State):
 
     def _zernio_profile_id(self) -> str:
         return self._zernio_settings().get("profile_id", "")
+
+    def _ai_settings(self) -> dict[str, str]:
+        return store.get_ai_settings(self._owner_id())
+
+    def _ai_api_key(self) -> str:
+        return self._ai_settings().get("api_key", "")
+
+    def _ai_model(self) -> str:
+        return self._ai_settings().get("model", "")
 
     def _reload_from_store(self):
         self.drafts = store.list_drafts(self._owner_id())
@@ -624,6 +641,14 @@ class ContentState(rx.State):
         self.zernio_profile_id_input = value
 
     @rx.event
+    def set_ai_api_key_input(self, value: str):
+        self.ai_api_key_input = value
+
+    @rx.event
+    def set_ai_model_input(self, value: str):
+        self.ai_model_input = value
+
+    @rx.event
     def save_zernio_settings(self):
         existing = self._zernio_settings()
         api_key = self.zernio_api_key_input.strip() or existing.get("api_key", "")
@@ -636,6 +661,18 @@ class ContentState(rx.State):
         self._load_zernio_settings()
         self._sync_accounts_from_zernio()
         return rx.toast("Zernio settings saved")
+
+    @rx.event
+    def save_ai_settings(self):
+        existing = self._ai_settings()
+        api_key = self.ai_api_key_input.strip() or existing.get("api_key", "")
+        model = self.ai_model_input.strip() or existing.get("model", "")
+        if not api_key:
+            return rx.toast("Paste a Gemini API key first.")
+        store.save_ai_settings(self._owner_id(), api_key, model)
+        self.ai_api_key_input = ""
+        self._load_ai_settings()
+        return rx.toast("AI settings saved")
 
     @rx.event
     def refresh_accounts(self):
@@ -729,6 +766,16 @@ class ContentState(rx.State):
         if self.zernio_key_saved:
             return "Your saved Zernio API key is used for this workspace."
         return "Add your own Zernio API key to connect and schedule accounts."
+
+    @rx.var
+    def ai_status_label(self) -> str:
+        return "Configured" if self.ai_key_saved else "Using app default"
+
+    @rx.var
+    def ai_status_detail(self) -> str:
+        if self.ai_key_saved:
+            return "Your saved Gemini key is used for AI generation."
+        return "AI uses the app Gemini key until you save your own."
 
     @rx.var
     def char_count(self) -> int:
@@ -896,8 +943,12 @@ class ContentState(rx.State):
                 tone=self.tone,
                 platforms=self.selected_platforms,
             )
-            self.post_body = gemini.generate_text(prompt)
-        except Exception:
+            self.post_body = gemini.generate_text(
+                prompt,
+                api_key_override=self._ai_api_key() or None,
+                model_override=self._ai_model(),
+            )
+        except Exception as exc:
             logging.exception("Gemini generation failed")
             hook = _hook(self.tone, self.topic)
             body = _body(self.tone, self.audience, self.keywords)
@@ -908,7 +959,7 @@ class ContentState(rx.State):
                 parts.extend(["", tags])
             self.post_body = "\n".join(parts).strip()
             self.is_generating = False
-            return rx.toast("Gemini failed, so I used a local draft fallback.")
+            return rx.toast(f"{exc} I used a local draft fallback.")
         self.is_generating = False
 
     @rx.event
@@ -922,8 +973,12 @@ class ContentState(rx.State):
                 self.post_body,
                 "Rewrite this social post to be shorter, sharper, and ready to publish. Keep the meaning and preserve useful hashtags.",
             )
-            self.post_body = gemini.generate_text(prompt)
-        except Exception:
+            self.post_body = gemini.generate_text(
+                prompt,
+                api_key_override=self._ai_api_key() or None,
+                model_override=self._ai_model(),
+            )
+        except Exception as exc:
             logging.exception("Gemini shorten failed")
             sentences = [
                 s.strip()
@@ -934,7 +989,7 @@ class ContentState(rx.State):
                 sentences = sentences[:2]
             self.post_body = ". ".join(sentences) + "."
             self.is_generating = False
-            return rx.toast("Gemini failed, so I shortened it locally.")
+            return rx.toast(f"{exc} I shortened it locally.")
         self.is_generating = False
 
     @rx.event
@@ -957,12 +1012,16 @@ class ContentState(rx.State):
                 self.post_body,
                 f"Add one natural call to action in a {self.tone.lower()} tone. Return only the finished post.",
             )
-            self.post_body = gemini.generate_text(prompt)
-        except Exception:
+            self.post_body = gemini.generate_text(
+                prompt,
+                api_key_override=self._ai_api_key() or None,
+                model_override=self._ai_model(),
+            )
+        except Exception as exc:
             logging.exception("Gemini CTA failed")
             cta = _cta(self.tone)
             self.post_body = f"{self.post_body}\n\n{cta}".strip()
-            return rx.toast("Gemini failed, so I added a local CTA.")
+            return rx.toast(f"{exc} I added a local CTA.")
 
     @rx.event
     def clear_studio(self):
@@ -1397,8 +1456,12 @@ class ContentState(rx.State):
                 "specific, and concise.\n\n"
                 f"Content:\n{self.repurpose_source}"
             )
-            self.repurpose_result = gemini.generate_text(prompt)
-        except Exception:
+            self.repurpose_result = gemini.generate_text(
+                prompt,
+                api_key_override=self._ai_api_key() or None,
+                model_override=self._ai_model(),
+            )
+        except Exception as exc:
             logging.exception("Gemini repurpose failed")
             chunks = [
                 line.strip()
@@ -1411,7 +1474,7 @@ class ContentState(rx.State):
                 f"{i + 1}. {chunk[:260]}" for i, chunk in enumerate(chunks)
             )
             self.is_repurposing = False
-            return rx.toast("Gemini failed, so I created a simple fallback.")
+            return rx.toast(f"{exc} I created a simple fallback.")
         self.is_repurposing = False
 
     @rx.event
@@ -1529,6 +1592,7 @@ class ContentState(rx.State):
         self.user_id = next_user_id
         store.init_db()
         self._load_zernio_settings()
+        self._load_ai_settings()
         self._reload_from_store()
         self._sync_accounts_from_zernio()
         self._reload_from_store()
