@@ -1,13 +1,19 @@
 import reflex as rx
 from PostMeLater.states.app_state import AppState
 from PostMeLater.components.views import dashboard_view, studio_view, scheduling_view
+from PostMeLater.components.analytics import analytics_view
+from PostMeLater.components.content_lab import content_lab_view
+from PostMeLater.components.planner import planner_view
 from PostMeLater.components.accounts import accounts_view
 from PostMeLater.components.settings import settings_view
 
 
 NAV_ITEMS = [
     ("dashboard", "Dashboard", "layout-dashboard"),
+    ("analytics", "Analytics", "bar-chart-3"),
     ("studio", "AI Content Studio", "sparkles"),
+    ("content_lab", "Content Lab", "flask-conical"),
+    ("planner", "Planner", "calendar-days"),
     ("scheduling", "Scheduling Center", "calendar-clock"),
     ("accounts", "Social Accounts", "plug"),
     ("settings", "Settings", "settings"),
@@ -51,7 +57,10 @@ def _sidebar() -> rx.Component:
                     class_name="text-xs font-semibold text-slate-400 uppercase tracking-wider px-3 mb-2",
                 ),
                 _nav_button("dashboard", "Dashboard", "layout-dashboard"),
+                _nav_button("analytics", "Analytics", "bar-chart-3"),
                 _nav_button("studio", "AI Content Studio", "sparkles"),
+                _nav_button("content_lab", "Content Lab", "flask-conical"),
+                _nav_button("planner", "Planner", "calendar-days"),
                 _nav_button(
                     "scheduling", "Scheduling Center", "calendar-clock"
                 ),
@@ -167,7 +176,10 @@ def _mobile_drawer() -> rx.Component:
                 ),
                 rx.el.nav(
                     _nav_button("dashboard", "Dashboard", "layout-dashboard"),
+                    _nav_button("analytics", "Analytics", "bar-chart-3"),
                     _nav_button("studio", "AI Content Studio", "sparkles"),
+                    _nav_button("content_lab", "Content Lab", "flask-conical"),
+                    _nav_button("planner", "Planner", "calendar-days"),
                     _nav_button(
                         "scheduling", "Scheduling Center", "calendar-clock"
                     ),
@@ -201,7 +213,10 @@ def app_shell() -> rx.Component:
                     rx.match(
                         AppState.active_view,
                         ("dashboard", dashboard_view()),
+                        ("analytics", analytics_view()),
                         ("studio", studio_view()),
+                        ("content_lab", content_lab_view()),
+                        ("planner", planner_view()),
                         ("scheduling", scheduling_view()),
                         ("accounts", accounts_view()),
                         ("settings", settings_view()),
