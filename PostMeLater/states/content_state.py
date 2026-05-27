@@ -2064,14 +2064,33 @@ class ContentState(rx.State):
 
     @rx.var
     def platform_chart(self) -> list[PlatformPoint]:
-        counts: dict[str, int] = {p: 0 for p in PLATFORM_OPTIONS}
+        platform_labels: list[str] = []
+        for label in self._connected_platform_labels():
+            if label and label not in platform_labels:
+                platform_labels.append(label)
         for post in self.scheduled_posts:
             for pl in post["platforms"]:
-                if pl in counts:
-                    counts[pl] += 1
+                label = _platform_label(pl)
+                if label and label not in platform_labels:
+                    platform_labels.append(label)
+        ordered = [
+            platform
+            for platform in CONNECT_PLATFORM_OPTIONS
+            if platform in platform_labels
+        ]
+        ordered.extend(
+            [platform for platform in platform_labels if platform not in ordered]
+        )
+        counts: dict[str, int] = {platform: 0 for platform in ordered}
+        for post in self.scheduled_posts:
+            for pl in post["platforms"]:
+                label = _platform_label(pl)
+                if label in counts:
+                    counts[label] += 1
         return [
             PlatformPoint(platform=k.replace(" / X", ""), posts=v)
             for k, v in counts.items()
+            if v > 0 or k in self._connected_platform_labels()
         ]
 
     @rx.var
