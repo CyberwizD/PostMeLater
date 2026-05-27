@@ -2,12 +2,13 @@ import reflex as rx
 import uuid
 import random
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, TypedDict
 import logging
 
 from PostMeLater.services import gemini, store, zernio
-from PostMeLater.services.config import get_setting
+from PostMeLater.services.config import app_timezone, get_setting
 
 
 class Draft(TypedDict):
@@ -149,6 +150,16 @@ def _platform_label(platform: str) -> str:
     return API_PLATFORM_LABELS.get(normalized, platform.strip().title())
 
 
+def _now() -> datetime:
+    tz_name = app_timezone()
+    if tz_name in {"Africa/Lagos", "WAT"}:
+        return datetime.now(timezone(timedelta(hours=1))).replace(tzinfo=None)
+    try:
+        return datetime.now(ZoneInfo(tz_name)).replace(tzinfo=None)
+    except Exception:
+        return datetime.now()
+
+
 def _hook(tone: str, topic: str) -> str:
     topic = topic.strip() or "what we're building"
     hooks = {
@@ -258,7 +269,7 @@ SEED_PLATFORM_SETS = [
 def _seed_scheduled_posts() -> list[ScheduledPost]:
     rng = random.Random(42)
     posts: list[ScheduledPost] = []
-    now = datetime.now().replace(second=0, microsecond=0)
+    now = _now().replace(second=0, microsecond=0)
     today_9 = now.replace(hour=9, minute=0)
     plan = [
         # (offset_days, hour, minute, status, account, engagement)
@@ -329,7 +340,7 @@ def _seed_drafts() -> list[Draft]:
             keywords="brand, growth, longevity",
             tone="Inspirational",
             platforms=["Twitter / X", "LinkedIn"],
-            created_at=(datetime.now() - timedelta(hours=3)).strftime(
+            created_at=(_now() - timedelta(hours=3)).strftime(
                 "%b %d, %Y · %I:%M %p"
             ),
         ),
@@ -341,7 +352,7 @@ def _seed_drafts() -> list[Draft]:
             keywords="product, changelog, ship",
             tone="Friendly",
             platforms=["Twitter / X"],
-            created_at=(datetime.now() - timedelta(days=1)).strftime(
+            created_at=(_now() - timedelta(days=1)).strftime(
                 "%b %d, %Y · %I:%M %p"
             ),
         ),
@@ -353,7 +364,7 @@ def _seed_drafts() -> list[Draft]:
             keywords="hiring, audience, building in public",
             tone="Bold",
             platforms=["LinkedIn", "Twitter / X"],
-            created_at=(datetime.now() - timedelta(days=2)).strftime(
+            created_at=(_now() - timedelta(days=2)).strftime(
                 "%b %d, %Y · %I:%M %p"
             ),
         ),
@@ -420,7 +431,7 @@ class ContentState(rx.State):
         self.accounts = store.list_accounts(self._owner_id())
         self._sync_selected_platforms()
         if not self.schedule_date:
-            self.schedule_date = datetime.now().strftime("%Y-%m-%d")
+            self.schedule_date = _now().strftime("%Y-%m-%d")
         if not self.schedule_account and self.accounts:
             self.schedule_account = self.accounts[0]["id"]
 
@@ -689,7 +700,7 @@ class ContentState(rx.State):
 
     @rx.var
     def upcoming_week(self) -> list[ScheduledPost]:
-        now = datetime.now()
+        now = _now()
         cutoff = now + timedelta(days=7)
         result = []
         for p in self.scheduled_posts:
@@ -839,7 +850,7 @@ class ContentState(rx.State):
             "keywords": self.keywords,
             "tone": self.tone,
             "platforms": list(self.selected_platforms),
-            "created_at": datetime.now().strftime("%b %d, %Y · %I:%M %p"),
+            "created_at": _now().strftime("%b %d, %Y · %I:%M %p"),
         }
         store.save_draft(draft, self._owner_id())
         self._reload_from_store()
@@ -1176,7 +1187,7 @@ class ContentState(rx.State):
 
     @rx.var
     def week_calendar(self) -> list[DayColumn]:
-        today = datetime.now().replace(
+        today = _now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         # Start on Monday
@@ -1207,7 +1218,7 @@ class ContentState(rx.State):
 
     @rx.var
     def weekly_chart(self) -> list[ChartPoint]:
-        today = datetime.now().replace(
+        today = _now().replace(
             hour=0, minute=0, second=0, microsecond=0
         )
         start = today - timedelta(days=6)
@@ -1326,7 +1337,7 @@ class ContentState(rx.State):
         if not accounts:
             accounts = [("No connected accounts", "Zernio", "at-sign")]
         result: list[AccountHealth] = []
-        today = datetime.now()
+        today = _now()
         week_ago = today - timedelta(days=7)
         for handle, platform, icon in accounts:
             posts_week = 0
