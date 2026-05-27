@@ -168,16 +168,24 @@ CONNECT_PLATFORM_OPTIONS = [
     "Pinterest",
     "Reddit",
 ]
-AI_PROVIDER_OPTIONS = ["Gemini", "OpenAI", "Claude"]
+AI_PROVIDER_OPTIONS = ["Gemini", "OpenAI", "Claude", "OpenRouter", "Custom"]
 AI_PROVIDER_KEYS = {
     "Gemini": "gemini",
     "OpenAI": "openai",
     "Claude": "anthropic",
+    "OpenRouter": "openrouter",
+    "Custom": "custom",
 }
 AI_PROVIDER_LABELS = {
     "gemini": "Gemini",
     "openai": "OpenAI",
     "anthropic": "Claude",
+    "openrouter": "OpenRouter",
+    "custom": "Custom",
+}
+AI_DEFAULT_BASE_URLS = {
+    "openrouter": "https://openrouter.ai/api/v1",
+    "custom": "",
 }
 API_PLATFORM_LABELS = {
     "twitter": "Twitter / X",
@@ -506,6 +514,7 @@ class ContentState(rx.State):
     ai_api_key_input: str = ""
     ai_model_input: str = ""
     ai_provider_input: str = "Gemini"
+    ai_base_url_input: str = ""
     ai_key_saved: bool = False
 
     ideas: list[IdeaItem] = []
@@ -562,6 +571,9 @@ class ContentState(rx.State):
         self.ai_model_input = (
             settings.get("model", "") or gemini.default_model(provider)
         )
+        self.ai_base_url_input = settings.get("base_url", "") or AI_DEFAULT_BASE_URLS.get(
+            provider, ""
+        )
 
     def _zernio_settings(self) -> dict[str, str]:
         return store.get_zernio_settings(self._owner_id())
@@ -583,6 +595,9 @@ class ContentState(rx.State):
 
     def _ai_provider(self) -> str:
         return self._ai_settings().get("provider", "gemini")
+
+    def _ai_base_url(self) -> str:
+        return self._ai_settings().get("base_url", "")
 
     def _reload_from_store(self):
         self.drafts = store.list_drafts(self._owner_id())
@@ -668,10 +683,15 @@ class ContentState(rx.State):
         self.ai_model_input = value
 
     @rx.event
+    def set_ai_base_url_input(self, value: str):
+        self.ai_base_url_input = value
+
+    @rx.event
     def set_ai_provider_input(self, value: str):
         self.ai_provider_input = value
         provider = AI_PROVIDER_KEYS.get(value, "gemini")
         self.ai_model_input = gemini.default_model(provider)
+        self.ai_base_url_input = AI_DEFAULT_BASE_URLS.get(provider, "")
 
     @rx.event
     def save_zernio_settings(self):
@@ -693,9 +713,14 @@ class ContentState(rx.State):
         api_key = self.ai_api_key_input.strip() or existing.get("api_key", "")
         model = self.ai_model_input.strip() or existing.get("model", "")
         provider = AI_PROVIDER_KEYS.get(self.ai_provider_input, "gemini")
+        base_url = self.ai_base_url_input.strip() or existing.get("base_url", "")
         if not api_key:
             return rx.toast("Paste an AI API key first.")
-        store.save_ai_settings(self._owner_id(), api_key, model, provider)
+        if provider == "custom" and not base_url:
+            return rx.toast("Add a base URL for the custom provider.")
+        store.save_ai_settings(
+            self._owner_id(), api_key, model, provider, base_url
+        )
         self.ai_api_key_input = ""
         self._load_ai_settings()
         return rx.toast("AI settings saved")
@@ -808,6 +833,10 @@ class ContentState(rx.State):
         provider = self._ai_provider() if self.ai_key_saved else "gemini"
         model = self._ai_model() if self.ai_key_saved else gemini.default_model("gemini")
         return f"{AI_PROVIDER_LABELS.get(provider, 'Gemini')} · {model}"
+
+    @rx.var
+    def ai_base_url_enabled(self) -> bool:
+        return self.ai_provider_input in {"OpenRouter", "Custom"}
 
     @rx.var
     def char_count(self) -> int:
@@ -980,6 +1009,7 @@ class ContentState(rx.State):
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
                 provider=self._ai_provider(),
+                base_url=self._ai_base_url(),
             )
         except Exception as exc:
             logging.exception("Gemini generation failed")
@@ -1011,6 +1041,7 @@ class ContentState(rx.State):
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
                 provider=self._ai_provider(),
+                base_url=self._ai_base_url(),
             )
         except Exception as exc:
             logging.exception("Gemini shorten failed")
@@ -1051,6 +1082,7 @@ class ContentState(rx.State):
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
                 provider=self._ai_provider(),
+                base_url=self._ai_base_url(),
             )
         except Exception as exc:
             logging.exception("Gemini CTA failed")
@@ -1496,6 +1528,7 @@ class ContentState(rx.State):
                 api_key_override=self._ai_api_key() or None,
                 model_override=self._ai_model(),
                 provider=self._ai_provider(),
+                base_url=self._ai_base_url(),
             )
         except Exception as exc:
             logging.exception("Gemini repurpose failed")
