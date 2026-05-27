@@ -74,6 +74,14 @@ def init_db() -> None:
                 updated_at text not null
             );
 
+            create table if not exists ai_settings (
+                user_id text primary key,
+                provider text not null default 'gemini',
+                api_key text not null default '',
+                model text not null default '',
+                updated_at text not null
+            );
+
             create table if not exists ideas (
                 user_id text not null default 'default',
                 id text not null,
@@ -396,6 +404,44 @@ def delete_zernio_settings(user_id: str) -> None:
     init_db()
     with _connect() as conn:
         conn.execute("delete from zernio_settings where user_id = ?", (user_id,))
+
+
+def save_ai_settings(
+    user_id: str, api_key: str, model: str = "", provider: str = "gemini"
+) -> None:
+    init_db()
+    now = datetime.utcnow().isoformat()
+    with _connect() as conn:
+        conn.execute(
+            """
+            insert or replace into ai_settings
+            (user_id, provider, api_key, model, updated_at)
+            values (?, ?, ?, ?, ?)
+            """,
+            (user_id, provider.strip() or "gemini", api_key.strip(), model.strip(), now),
+        )
+
+
+def get_ai_settings(user_id: str) -> dict[str, str]:
+    init_db()
+    with _connect() as conn:
+        row = conn.execute(
+            "select provider, api_key, model from ai_settings where user_id = ?",
+            (user_id,),
+        ).fetchone()
+    if row is None:
+        return {"provider": "gemini", "api_key": "", "model": ""}
+    return {
+        "provider": row["provider"],
+        "api_key": row["api_key"],
+        "model": row["model"],
+    }
+
+
+def delete_ai_settings(user_id: str) -> None:
+    init_db()
+    with _connect() as conn:
+        conn.execute("delete from ai_settings where user_id = ?", (user_id,))
 
 
 def list_ideas(user_id: str = "default") -> list[dict[str, Any]]:
