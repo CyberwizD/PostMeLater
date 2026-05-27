@@ -197,6 +197,72 @@ def list_posts(
     return list(posts) if isinstance(posts, list) else []
 
 
+def get_analytics(
+    *,
+    limit: int = 50,
+    page: int = 1,
+    platform: str = "all",
+    profile_id: str = "",
+    account_id: str = "",
+    source: str = "all",
+    from_date: str = "",
+    to_date: str = "",
+    sort_by: str = "engagement",
+    order: str = "desc",
+    api_key_override: str | None = None,
+) -> dict[str, Any]:
+    """Return Zernio post analytics with overview stats when available."""
+    params: dict[str, Any] = {
+        "limit": limit,
+        "page": page,
+        "source": source,
+        "sortBy": sort_by,
+        "order": order,
+    }
+    if platform and platform != "all":
+        params["platform"] = platform
+    if profile_id:
+        params["profileId"] = profile_id
+    if account_id:
+        params["accountId"] = account_id
+    if from_date:
+        params["fromDate"] = from_date
+    if to_date:
+        params["toDate"] = to_date
+    return _request(
+        "GET", "/analytics", api_key_override=api_key_override, params=params
+    )
+
+
+def get_daily_metrics(
+    *,
+    platform: str = "",
+    profile_id: str = "",
+    account_id: str = "",
+    from_date: str = "",
+    to_date: str = "",
+    api_key_override: str | None = None,
+) -> dict[str, Any]:
+    """Return daily aggregate analytics from Zernio."""
+    params: dict[str, Any] = {}
+    if platform:
+        params["platform"] = platform
+    if profile_id:
+        params["profileId"] = profile_id
+    if account_id:
+        params["accountId"] = account_id
+    if from_date:
+        params["fromDate"] = from_date
+    if to_date:
+        params["toDate"] = to_date
+    return _request(
+        "GET",
+        "/analytics/daily-metrics",
+        api_key_override=api_key_override,
+        params=params,
+    )
+
+
 def create_post(
     *,
     content: str,
