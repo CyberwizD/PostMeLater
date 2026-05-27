@@ -58,6 +58,46 @@ def _top_post(post) -> rx.Component:
     )
 
 
+def _best_time_card() -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.el.div(
+                rx.icon("clock-3", class_name="h-5 w-5 text-indigo-600"),
+                class_name="h-11 w-11 rounded-xl bg-indigo-50 flex items-center justify-center shrink-0",
+            ),
+            rx.el.div(
+                rx.el.h2("Best time to post", class_name="font-semibold text-slate-900"),
+                rx.el.p(
+                    ContentState.best_time_summary,
+                    class_name="text-sm text-slate-600 mt-1 leading-relaxed",
+                ),
+                class_name="min-w-0",
+            ),
+            class_name="flex items-start gap-3",
+        ),
+        rx.el.div(
+            rx.el.div(
+                rx.el.p("Best window", class_name="text-xs font-semibold text-slate-500"),
+                rx.el.p("Learning", class_name="text-sm font-bold text-slate-900 mt-1"),
+                class_name="p-3 rounded-xl bg-slate-50 border border-slate-200",
+            ),
+            rx.el.div(
+                rx.el.p("Data needed", class_name="text-xs font-semibold text-slate-500"),
+                rx.el.p("Posted posts", class_name="text-sm font-bold text-slate-900 mt-1"),
+                class_name="p-3 rounded-xl bg-slate-50 border border-slate-200",
+            ),
+            class_name="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3 mt-5",
+        ),
+        rx.el.div(
+            rx.el.div(class_name="h-2 rounded-full bg-indigo-500 w-1/4"),
+            rx.el.div(class_name="h-2 rounded-full bg-emerald-400 w-1/2"),
+            rx.el.div(class_name="h-2 rounded-full bg-amber-400 w-1/3"),
+            class_name="flex items-end gap-2 mt-5 h-14",
+        ),
+        class_name="bg-white border border-slate-200 rounded-xl p-5",
+    )
+
+
 def analytics_view() -> rx.Component:
     return rx.el.div(
         rx.el.div(
@@ -108,6 +148,10 @@ def analytics_view() -> rx.Component:
                         "Daily engagement and post volume.",
                         class_name="text-sm text-slate-500 mt-0.5",
                     ),
+                    rx.el.span(
+                        ContentState.analytics_chart_month_label,
+                        class_name="inline-flex mt-3 px-2 py-1 rounded-md bg-slate-100 text-xs font-semibold text-slate-600",
+                    ),
                     class_name="mb-4",
                 ),
                 rx.recharts.area_chart(
@@ -131,7 +175,13 @@ def analytics_view() -> rx.Component:
                         stroke_width=2,
                         type_="natural",
                     ),
-                    rx.recharts.x_axis(data_key="day", axis_line=False, tick_line=False, tick_size=10),
+                    rx.recharts.x_axis(
+                        data_key="day",
+                        axis_line=False,
+                        tick_line=False,
+                        tick_size=10,
+                        interval=0,
+                    ),
                     rx.recharts.y_axis(axis_line=False, tick_line=False, tick_size=10),
                     data=ContentState.analytics_chart,
                     width="100%",
@@ -141,15 +191,7 @@ def analytics_view() -> rx.Component:
                 ),
                 class_name="bg-white border border-slate-200 rounded-xl p-5",
             ),
-            rx.el.div(
-                rx.el.h2("Best time to post", class_name="font-semibold text-slate-900"),
-                rx.el.p(ContentState.best_time_summary, class_name="text-sm text-slate-600 mt-3 leading-relaxed"),
-                rx.el.div(
-                    rx.icon("clock-3", class_name="h-8 w-8 text-indigo-600"),
-                    class_name="h-16 w-16 rounded-2xl bg-indigo-50 flex items-center justify-center mt-6",
-                ),
-                class_name="bg-white border border-slate-200 rounded-xl p-5",
-            ),
+            _best_time_card(),
             class_name="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-5 mb-5",
         ),
         rx.el.div(
