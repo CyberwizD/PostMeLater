@@ -1,4 +1,5 @@
 import json
+import logging
 
 import reflex as rx
 
@@ -33,9 +34,18 @@ class AppState(rx.State):
         self.mobile_nav_open = False
 
     @rx.event
-    def set_view(self, view: str):
+    async def set_view(self, view: str):
         self.active_view = view
         self.mobile_nav_open = False
+        if view in {"dashboard", "scheduling"}:
+            try:
+                from PostMeLater.states.content_state import ContentState
+
+                content_state = await self.get_state(ContentState)
+                owner_id = self.user_id or self.user_email or "default"
+                content_state.sync_post_statuses_for_user(owner_id)
+            except Exception:
+                logging.exception("Could not sync Zernio statuses while switching views")
 
     @rx.event
     def toggle_mobile_nav(self):
