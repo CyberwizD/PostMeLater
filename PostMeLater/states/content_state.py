@@ -1,4 +1,5 @@
 import reflex as rx
+import asyncio
 import uuid
 import random
 import json
@@ -540,6 +541,7 @@ class ContentState(rx.State):
     accounts: list[ConnectedAccount] = []
     seeded: bool = False
     api_notice: str = ""
+    status_polling_active: bool = False
     zernio_api_key_input: str = ""
     zernio_profile_id_input: str = ""
     zernio_key_saved: bool = False
@@ -840,6 +842,33 @@ class ContentState(rx.State):
         if updated:
             return rx.toast(f"Updated {updated} post status(es) from Zernio")
         return rx.toast("No status changes from Zernio")
+
+    @rx.event(background=True)
+    async def poll_zernio_statuses(self):
+        async with self:
+            if self.status_polling_active:
+                return
+            self.status_polling_active = True
+
+        try:
+            for _ in range(480):
+                await asyncio.sleep(45)
+                try:
+                    async with self:
+                        from PostMeLater.states.app_state import AppState
+
+                        app_state = await self.get_state(AppState)
+                        if not app_state.in_app:
+                            break
+                        owner_id = (
+                            app_state.user_id or app_state.user_email or "default"
+                        )
+                        self.sync_post_statuses_for_user(owner_id)
+                except Exception:
+                    logging.exception("Zernio status polling failed")
+        finally:
+            async with self:
+                self.status_polling_active = False
 
     @rx.event
     def connect_account(self):
