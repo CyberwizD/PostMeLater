@@ -274,11 +274,54 @@ def get_daily_metrics(
     )
 
 
+def upload_media(
+    *,
+    filename: str,
+    content_type: str,
+    content: bytes,
+    size: int = 0,
+    api_key_override: str | None = None,
+) -> dict[str, str]:
+    """Upload media to Zernio and return a media item for post creation."""
+    body: dict[str, Any] = {
+        "filename": filename,
+        "contentType": content_type,
+    }
+    if size:
+        body["size"] = size
+    presign = _request(
+        "POST",
+        "/media/presign",
+        api_key_override=api_key_override,
+        json=body,
+    )
+    upload_url = str(presign.get("uploadUrl") or presign.get("upload_url") or "")
+    public_url = str(presign.get("publicUrl") or presign.get("public_url") or "")
+    if not upload_url or not public_url:
+        raise ZernioError("Zernio did not return a media upload URL.")
+    try:
+        response = httpx.put(
+            upload_url,
+            content=content,
+            headers={"Content-Type": content_type},
+            timeout=120,
+        )
+        response.raise_for_status()
+    except httpx.HTTPError as exc:
+        logging.exception("Zernio media upload failed")
+        raise ZernioError("Could not upload media to Zernio.") from exc
+    media_type = str(presign.get("type") or "")
+    if not media_type:
+        media_type = "video" if content_type.startswith("video/") else "image"
+    return {"url": public_url, "type": media_type, "name": filename}
+
+
 def create_post(
     *,
     content: str,
     scheduled_for: str | None,
     platforms: list[dict[str, str]],
+    media_items: list[dict[str, str]] | None = None,
     api_key_override: str | None = None,
 ) -> dict[str, Any]:
     """Create a scheduled post or draft in Zernio."""
@@ -286,6 +329,8 @@ def create_post(
         "content": content,
         "platforms": platforms,
     }
+    if media_items:
+        payload["mediaItems"] = media_items
     if scheduled_for:
         payload["scheduledFor"] = scheduled_for
         payload["timezone"] = app_timezone()
