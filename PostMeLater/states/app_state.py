@@ -37,7 +37,7 @@ class AppState(rx.State):
     async def set_view(self, view: str):
         self.active_view = view
         self.mobile_nav_open = False
-        if view in {"dashboard", "scheduling"}:
+        if view in {"dashboard", "analytics", "planner", "scheduling", "studio"}:
             try:
                 from PostMeLater.states.content_state import ContentState
 
