@@ -589,6 +589,8 @@ class ContentState(rx.State):
     edit_time: str = ""
     edit_account: str = ""
     zernio_help_open: bool = False
+    disconnect_modal_open: bool = False
+    disconnect_account_id: str = ""
 
     def _owner_id(self) -> str:
         return self.user_id or "default"
@@ -782,6 +784,16 @@ class ContentState(rx.State):
         self.zernio_help_open = False
 
     @rx.event
+    def open_disconnect_account(self, account_id: str):
+        self.disconnect_account_id = account_id
+        self.disconnect_modal_open = True
+
+    @rx.event
+    def close_disconnect_account(self):
+        self.disconnect_modal_open = False
+        self.disconnect_account_id = ""
+
+    @rx.event
     def set_ai_api_key_input(self, value: str):
         self.ai_api_key_input = value
 
@@ -914,8 +926,15 @@ class ContentState(rx.State):
             zernio.disconnect_account(account_id, api_key_override=api_key)
         except zernio.ZernioError as exc:
             return rx.toast(str(exc))
+        self.close_disconnect_account()
         self._sync_accounts_from_zernio()
         return rx.toast(f"Disconnected {account_label}")
+
+    @rx.event
+    def confirm_disconnect_account(self):
+        if not self.disconnect_account_id:
+            return
+        return self.disconnect_account(self.disconnect_account_id)
 
     def _account_label(self, account_id: str) -> str:
         for account in self.accounts:
@@ -927,6 +946,10 @@ class ContentState(rx.State):
                 )
                 return f"{name} ({account['platform']})"
         return account_id or "Default account"
+
+    @rx.var
+    def disconnect_account_label(self) -> str:
+        return self._account_label(self.disconnect_account_id)
 
     def _targets_for_selected_platforms(self) -> tuple[list[dict[str, str]], list[str]]:
         targets: list[dict[str, str]] = []
