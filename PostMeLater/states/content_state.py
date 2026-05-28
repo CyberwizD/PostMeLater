@@ -1,5 +1,6 @@
 import reflex as rx
 import asyncio
+import mimetypes
 import uuid
 import random
 import json
@@ -46,6 +47,12 @@ class ConnectedAccount(TypedDict):
     username: str
     display_name: str
     profile_id: str
+
+
+class PostMedia(TypedDict):
+    name: str
+    url: str
+    type: str
 
 
 class AccountOption(TypedDict):
@@ -535,6 +542,8 @@ class ContentState(rx.State):
     selected_platforms: list[str] = []
     post_body: str = ""
     is_generating: bool = False
+    is_uploading_media: bool = False
+    post_media: list[PostMedia] = []
 
     drafts: list[Draft] = []
     scheduled_posts: list[ScheduledPost] = []
@@ -1088,7 +1097,7 @@ class ContentState(rx.State):
     @rx.var
     def can_schedule(self) -> bool:
         return (
-            len(self.post_body.strip()) > 0
+            (len(self.post_body.strip()) > 0 or len(self.post_media) > 0)
             and len(self.selected_platforms) > 0
             and len(self.schedule_date) > 0
         )
@@ -1165,6 +1174,71 @@ class ContentState(rx.State):
     @rx.event
     def set_post_body(self, v: str):
         self.post_body = v
+
+    @rx.event
+    def upload_post_media(self, files: list[rx.UploadFile]):
+        if not files:
+            return
+        api_key = self._zernio_api_key()
+        if not api_key:
+            return rx.toast("Add your Zernio API key before uploading media.")
+        self.is_uploading_media = True
+        yield
+        uploaded: list[PostMedia] = []
+        try:
+            for file in files:
+                filename = file.filename or file.name or "media"
+                content_type = (
+                    file.content_type
+                    or mimetypes.guess_type(filename)[0]
+                    or "application/octet-stream"
+                )
+                if not (
+                    content_type.startswith("image/")
+                    or content_type.startswith("video/")
+                ):
+                    continue
+                content = file.file.read()
+                if not content:
+                    continue
+                media = zernio.upload_media(
+                    filename=filename,
+                    content_type=content_type,
+                    content=content,
+                    size=file.size or len(content),
+                    api_key_override=api_key,
+                )
+                uploaded.append(
+                    PostMedia(
+                        name=media.get("name", filename),
+                        url=media["url"],
+                        type=media["type"],
+                    )
+                )
+        except Exception as exc:
+            logging.exception("Media upload failed")
+            self.is_uploading_media = False
+            return rx.toast(str(exc))
+        self.post_media = self.post_media + uploaded
+        self.is_uploading_media = False
+        if uploaded:
+            return [
+                rx.clear_selected_files("post-media"),
+                rx.toast(f"Uploaded {len(uploaded)} media file(s)"),
+            ]
+        return [
+            rx.clear_selected_files("post-media"),
+            rx.toast("No supported image or video files were uploaded."),
+        ]
+
+    @rx.event
+    def remove_post_media(self, url: str):
+        self.post_media = [media for media in self.post_media if media["url"] != url]
+
+    @rx.event
+    def clear_post_media(self):
+        self.post_media = []
+        return rx.clear_selected_files("post-media")
 
     @rx.event
     def toggle_platform(self, platform: str):
@@ -1279,9 +1353,11 @@ class ContentState(rx.State):
     @rx.event
     def clear_studio(self):
         self.post_body = ""
+        self.post_media = []
         self.topic = ""
         self.audience = ""
         self.keywords = ""
+        return rx.clear_selected_files("post-media")
 
     @rx.event
     def save_draft(self):
@@ -1388,8 +1464,8 @@ class ContentState(rx.State):
 
     @rx.event
     def schedule_post(self):
-        if not self.post_body.strip():
-            return rx.toast("Write or generate a post first.")
+        if not self.post_body.strip() and not self.post_media:
+            return rx.toast("Write a post or attach media first.")
         if not self.selected_platforms:
             return rx.toast("Pick at least one platform.")
         if not self.schedule_date:
@@ -1402,6 +1478,11 @@ class ContentState(rx.State):
         if not targets:
             return rx.toast("Connect a Zernio account before scheduling.")
         body = self.post_body
+        media_items = [
+            {"url": media["url"], "type": media["type"]}
+            for media in self.post_media
+        ]
+        local_body = body or f"Media post ({len(media_items)} attachment(s))"
         new_posts: list[ScheduledPost] = []
         try:
             base_dt = datetime.fromisoformat(
@@ -1430,6 +1511,7 @@ class ContentState(rx.State):
                         content=body,
                         scheduled_for=dt.isoformat(),
                         platforms=targets,
+                        media_items=media_items,
                         api_key_override=api_key,
                     )
                     zernio_post_id = _zernio_post_id(response)
@@ -1444,7 +1526,7 @@ class ContentState(rx.State):
                 status = "failed"
                 error = str(exc)
             post = self._make_post(
-                body,
+                local_body,
                 dt.strftime("%Y-%m-%d"),
                 dt.strftime("%H:%M"),
                 zernio_post_id=zernio_post_id,
@@ -1455,14 +1537,18 @@ class ContentState(rx.State):
             new_posts.append(post)
         self._reload_from_store()
         self.post_body = ""
+        self.post_media = []
         failed = sum(1 for post in new_posts if post["status"] == "failed")
         if failed:
             return rx.toast(
                 f"{failed} post(s) could not be scheduled in Zernio. Check the queue."
             )
-        return rx.toast(
-            f"Scheduled {len(new_posts)} post(s) to {self._account_label(self.schedule_account)}"
-        )
+        return [
+            rx.clear_selected_files("post-media"),
+            rx.toast(
+                f"Scheduled {len(new_posts)} post(s) to {self._account_label(self.schedule_account)}"
+            ),
+        ]
 
     @rx.event
     def cancel_post(self, post_id: str):
