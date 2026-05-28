@@ -330,6 +330,7 @@ def studio_view() -> rx.Component:
                     ),
                     class_name="bg-white border border-slate-200 rounded-2xl p-5 mt-4",
                 ),
+                _media_panel(),
                 class_name="flex flex-col",
             ),
             # RIGHT: Editor
@@ -408,7 +409,6 @@ def studio_view() -> rx.Component:
                     _quality_bar(),
                     class_name="mt-4",
                 ),
-                _media_panel(),
                 _schedule_panel(),
                 class_name="flex flex-col",
             ),
