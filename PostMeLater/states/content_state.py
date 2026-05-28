@@ -746,6 +746,14 @@ class ContentState(rx.State):
             self._reload_from_store()
         return updated
 
+    def sync_post_statuses_for_user(self, user_id: str = "") -> int:
+        if user_id and self.user_id != user_id:
+            self.user_id = user_id
+            self._load_zernio_settings()
+            self._load_ai_settings()
+        self._reload_from_store()
+        return self._sync_post_statuses_from_zernio()
+
     @rx.event
     def set_connect_platform(self, platform: str):
         self.connect_platform = platform
