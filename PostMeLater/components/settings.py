@@ -227,7 +227,7 @@ def settings_view() -> rx.Component:
                             class_name="min-w-0",
                         ),
                         rx.el.button(
-                            rx.icon("help-circle", class_name="h-4 w-4"),
+                            rx.icon("circle-help", class_name="h-4 w-4"),
                             "How to connect",
                             on_click=ContentState.open_zernio_help,
                             class_name="flex items-center gap-1.5 text-xs font-semibold text-indigo-600 hover:text-indigo-700 shrink-0",
