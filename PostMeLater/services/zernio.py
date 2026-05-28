@@ -108,6 +108,11 @@ def list_accounts(api_key_override: str | None = None) -> list[dict[str, Any]]:
     return list(accounts) if isinstance(accounts, list) else []
 
 
+def disconnect_account(account_id: str, api_key_override: str | None = None) -> None:
+    """Disconnect and remove a connected Zernio social account."""
+    _request("DELETE", f"/accounts/{account_id}", api_key_override=api_key_override)
+
+
 def list_profiles(api_key_override: str | None = None) -> list[dict[str, Any]]:
     """List Zernio profiles available to the API key."""
     data = _request(
