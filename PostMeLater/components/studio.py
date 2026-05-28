@@ -408,6 +408,7 @@ def studio_view() -> rx.Component:
                     _quality_bar(),
                     class_name="mt-4",
                 ),
+                _media_panel(),
                 _schedule_panel(),
                 class_name="flex flex-col",
             ),
@@ -570,6 +571,113 @@ def _schedule_panel() -> rx.Component:
             "Schedule post",
             on_click=ContentState.schedule_post,
             class_name="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white px-4 py-2.5 rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors",
+        ),
+        class_name="bg-white border border-slate-200 rounded-2xl p-5 mt-4",
+    )
+
+
+def _media_item(media) -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.match(
+                media["type"],
+                ("video", rx.icon("video", class_name="h-4 w-4 text-amber-600")),
+                ("image", rx.icon("image", class_name="h-4 w-4 text-indigo-600")),
+                rx.icon("paperclip", class_name="h-4 w-4 text-slate-500"),
+            ),
+            class_name="h-9 w-9 rounded-lg bg-slate-50 flex items-center justify-center shrink-0",
+        ),
+        rx.el.div(
+            rx.el.p(
+                media["name"],
+                class_name="text-xs font-semibold text-slate-800 truncate",
+            ),
+            rx.el.p(
+                media["type"],
+                class_name="text-[11px] text-slate-500 capitalize",
+            ),
+            class_name="min-w-0 flex-1",
+        ),
+        rx.el.button(
+            rx.icon("x", class_name="h-3.5 w-3.5"),
+            on_click=lambda: ContentState.remove_post_media(media["url"]),
+            class_name="p-1.5 rounded-md text-slate-400 hover:text-red-600 hover:bg-red-50 transition-colors",
+        ),
+        class_name="flex items-center gap-2 p-2 rounded-xl border border-slate-200 bg-white",
+    )
+
+
+def _media_panel() -> rx.Component:
+    return rx.el.div(
+        rx.el.div(
+            rx.el.div(
+                rx.icon("paperclip", class_name="h-4 w-4 text-indigo-600"),
+                rx.el.h3(
+                    "Media attachments",
+                    class_name="font-semibold text-slate-900 text-sm",
+                ),
+                class_name="flex items-center gap-2",
+            ),
+            rx.cond(
+                ContentState.post_media.length() > 0,
+                rx.el.button(
+                    "Clear",
+                    on_click=ContentState.clear_post_media,
+                    class_name="text-xs font-semibold text-slate-500 hover:text-red-600",
+                ),
+                rx.fragment(),
+            ),
+            class_name="flex items-center justify-between mb-3",
+        ),
+        rx.upload(
+            rx.el.div(
+                rx.cond(
+                    ContentState.is_uploading_media,
+                    rx.icon(
+                        "loader-circle",
+                        class_name="h-5 w-5 text-indigo-600 animate-spin",
+                    ),
+                    rx.icon("cloud-upload", class_name="h-5 w-5 text-indigo-600"),
+                ),
+                rx.el.div(
+                    rx.el.p(
+                        "Drop images or videos here",
+                        class_name="text-sm font-semibold text-slate-800",
+                    ),
+                    rx.el.p(
+                        "JPG, PNG, GIF, WebP, MP4, MOV, AVI, or WebM up to 100MB each.",
+                        class_name="text-xs text-slate-500 mt-0.5",
+                    ),
+                ),
+                class_name="flex items-center gap-3",
+            ),
+            id="post-media",
+            accept={
+                "image/*": [".jpg", ".jpeg", ".png", ".gif", ".webp"],
+                "video/*": [".mp4", ".mov", ".avi", ".webm", ".m4v"],
+            },
+            max_files=10,
+            max_size=100 * 1024 * 1024,
+            multiple=True,
+            disabled=ContentState.is_uploading_media,
+            on_drop=ContentState.upload_post_media,
+            class_name="cursor-pointer rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:border-indigo-300 hover:bg-indigo-50/40 transition-colors p-4",
+        ),
+        rx.cond(
+            rx.selected_files("post-media").length() > 0,
+            rx.el.p(
+                "Selected: " + rx.selected_files("post-media").join(", "),
+                class_name="mt-2 text-xs text-slate-500 truncate",
+            ),
+            rx.fragment(),
+        ),
+        rx.cond(
+            ContentState.post_media.length() > 0,
+            rx.el.div(
+                rx.foreach(ContentState.post_media, _media_item),
+                class_name="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-3",
+            ),
+            rx.fragment(),
         ),
         class_name="bg-white border border-slate-200 rounded-2xl p-5 mt-4",
     )
