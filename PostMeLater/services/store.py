@@ -9,10 +9,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+import httpx
+
+from PostMeLater.services.config import get_setting
+
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
 DB_DIR = ROOT_DIR / ".states"
 DB_PATH = DB_DIR / "postmelater.sqlite3"
+SUPABASE_TABLE_PREFIX = "pml_"
 
 
 @contextmanager
@@ -28,6 +33,67 @@ def _connect() -> Iterator[sqlite3.Connection]:
         raise
     finally:
         conn.close()
+
+
+def _supabase_configured() -> bool:
+    return bool(
+        get_setting("SUPABASE_URL") and get_setting("SUPABASE_SERVICE_ROLE_KEY")
+    )
+
+
+def _supabase_headers() -> dict[str, str]:
+    key = get_setting("SUPABASE_SERVICE_ROLE_KEY")
+    return {
+        "apikey": key,
+        "Authorization": f"Bearer {key}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
+
+
+def _supabase_url(table: str) -> str:
+    return f"{get_setting('SUPABASE_URL').rstrip('/')}/rest/v1/{SUPABASE_TABLE_PREFIX}{table}"
+
+
+def _supabase_select(
+    table: str,
+    *,
+    params: dict[str, str],
+) -> list[dict[str, Any]]:
+    response = httpx.get(
+        _supabase_url(table),
+        headers=_supabase_headers(),
+        params=params,
+        timeout=30,
+    )
+    response.raise_for_status()
+    data = response.json()
+    return list(data) if isinstance(data, list) else []
+
+
+def _supabase_upsert(table: str, rows: list[dict[str, Any]], on_conflict: str) -> None:
+    if not rows:
+        return
+    headers = _supabase_headers()
+    headers["Prefer"] = "resolution=merge-duplicates"
+    response = httpx.post(
+        _supabase_url(table),
+        headers=headers,
+        params={"on_conflict": on_conflict},
+        json=rows,
+        timeout=30,
+    )
+    response.raise_for_status()
+
+
+def _supabase_delete(table: str, params: dict[str, str]) -> None:
+    response = httpx.delete(
+        _supabase_url(table),
+        headers=_supabase_headers(),
+        params=params,
+        timeout=30,
+    )
+    response.raise_for_status()
 
 
 def init_db() -> None:
@@ -195,6 +261,28 @@ def _loads_list(value: str | None) -> list[str]:
 
 
 def list_drafts(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "drafts",
+            params={
+                "select": "id,body,topic,audience,keywords,tone,platforms_json,created_at",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+            },
+        )
+        return [
+            {
+                "id": row["id"],
+                "body": row["body"],
+                "topic": row["topic"],
+                "audience": row["audience"],
+                "keywords": row["keywords"],
+                "tone": row["tone"],
+                "platforms": _loads_list(row["platforms_json"]),
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -217,6 +305,25 @@ def list_drafts(user_id: str = "default") -> list[dict[str, Any]]:
 
 
 def save_draft(draft: dict[str, Any], user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_upsert(
+            "drafts",
+            [
+                {
+                    "id": draft["id"],
+                    "user_id": user_id,
+                    "body": draft["body"],
+                    "topic": draft.get("topic", ""),
+                    "audience": draft.get("audience", ""),
+                    "keywords": draft.get("keywords", ""),
+                    "tone": draft.get("tone", "Professional"),
+                    "platforms_json": json.dumps(draft.get("platforms", [])),
+                    "created_at": draft["created_at"],
+                }
+            ],
+            "user_id,id",
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -240,6 +347,11 @@ def save_draft(draft: dict[str, Any], user_id: str = "default") -> None:
 
 
 def delete_draft(draft_id: str, user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_delete(
+            "drafts", {"id": f"eq.{draft_id}", "user_id": f"eq.{user_id}"}
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -248,6 +360,34 @@ def delete_draft(draft_id: str, user_id: str = "default") -> None:
 
 
 def list_posts(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "posts",
+            params={
+                "select": "*",
+                "user_id": f"eq.{user_id}",
+                "order": "scheduled_at.asc,created_at.desc",
+            },
+        )
+        return [
+            {
+                "id": row["id"],
+                "zernio_post_id": row.get("zernio_post_id") or "",
+                "body": row["body"],
+                "platforms": _loads_list(row["platforms_json"]),
+                "account": row["account"],
+                "account_id": row["account_id"],
+                "scheduled_at": row["scheduled_at"],
+                "scheduled_date": row["scheduled_date"],
+                "scheduled_time": row["scheduled_time"],
+                "cadence": row["cadence"],
+                "status": row["status"],
+                "tone": row["tone"],
+                "engagement": int(row["engagement"] or 0),
+                "error": row.get("error") or "",
+            }
+            for row in rows
+        ]
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -276,6 +416,43 @@ def list_posts(user_id: str = "default") -> list[dict[str, Any]]:
 
 
 def save_post(post: dict[str, Any], user_id: str = "default") -> None:
+    if _supabase_configured():
+        now = datetime.utcnow().isoformat()
+        existing = _supabase_select(
+            "posts",
+            params={
+                "select": "created_at",
+                "id": f"eq.{post['id']}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        _supabase_upsert(
+            "posts",
+            [
+                {
+                    "id": post["id"],
+                    "user_id": user_id,
+                    "zernio_post_id": post.get("zernio_post_id", ""),
+                    "body": post["body"],
+                    "platforms_json": json.dumps(post.get("platforms", [])),
+                    "account": post.get("account", ""),
+                    "account_id": post.get("account_id", ""),
+                    "scheduled_at": post.get("scheduled_at", ""),
+                    "scheduled_date": post.get("scheduled_date", ""),
+                    "scheduled_time": post.get("scheduled_time", ""),
+                    "cadence": post.get("cadence", "One-time"),
+                    "status": post.get("status", "scheduled"),
+                    "tone": post.get("tone", "Professional"),
+                    "engagement": int(post.get("engagement", 0) or 0),
+                    "error": post.get("error", ""),
+                    "created_at": existing[0]["created_at"] if existing else now,
+                    "updated_at": now,
+                }
+            ],
+            "user_id,id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -316,12 +493,54 @@ def save_post(post: dict[str, Any], user_id: str = "default") -> None:
 
 
 def delete_post(post_id: str, user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_delete(
+            "posts", {"id": f"eq.{post_id}", "user_id": f"eq.{user_id}"}
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute("delete from posts where id = ? and user_id = ?", (post_id, user_id))
 
 
 def save_accounts(accounts: list[dict[str, Any]], user_id: str = "default") -> None:
+    if _supabase_configured():
+        now = datetime.utcnow().isoformat()
+        _supabase_delete("accounts", {"user_id": f"eq.{user_id}"})
+        rows = []
+        for account in accounts:
+            account_id = str(
+                account.get("_id")
+                or account.get("id")
+                or account.get("accountId")
+                or ""
+            )
+            if not account_id:
+                continue
+            profile = account.get("profileId") or account.get("profile_id") or ""
+            if isinstance(profile, dict):
+                profile = profile.get("_id") or profile.get("id") or ""
+            username = str(account.get("username") or account.get("handle") or "")
+            display_name = str(
+                account.get("displayName")
+                or account.get("name")
+                or username
+                or f"{str(account.get('platform') or 'Social').title()} account"
+            )
+            rows.append(
+                {
+                    "user_id": user_id,
+                    "id": account_id,
+                    "platform": str(account.get("platform") or ""),
+                    "username": username,
+                    "display_name": display_name,
+                    "profile_id": str(profile),
+                    "raw_json": json.dumps(account),
+                    "updated_at": now,
+                }
+            )
+        _supabase_upsert("accounts", rows, "user_id,id")
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -365,6 +584,25 @@ def save_accounts(accounts: list[dict[str, Any]], user_id: str = "default") -> N
 
 
 def list_accounts(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "accounts",
+            params={
+                "select": "id,platform,username,display_name,profile_id",
+                "user_id": f"eq.{user_id}",
+                "order": "platform.asc,username.asc",
+            },
+        )
+        return [
+            {
+                "id": row["id"],
+                "platform": row["platform"],
+                "username": row["username"],
+                "display_name": row["display_name"],
+                "profile_id": row["profile_id"],
+            }
+            for row in rows
+        ]
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -386,6 +624,20 @@ def list_accounts(user_id: str = "default") -> list[dict[str, Any]]:
 def save_zernio_settings(
     user_id: str, api_key: str, profile_id: str = ""
 ) -> None:
+    if _supabase_configured():
+        _supabase_upsert(
+            "zernio_settings",
+            [
+                {
+                    "user_id": user_id,
+                    "api_key": api_key.strip(),
+                    "profile_id": profile_id.strip(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+            ],
+            "user_id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -400,6 +652,18 @@ def save_zernio_settings(
 
 
 def get_zernio_settings(user_id: str) -> dict[str, str]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "zernio_settings",
+            params={
+                "select": "api_key,profile_id",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return {"api_key": "", "profile_id": ""}
+        return {"api_key": rows[0]["api_key"], "profile_id": rows[0]["profile_id"]}
     init_db()
     with _connect() as conn:
         row = conn.execute(
@@ -412,6 +676,9 @@ def get_zernio_settings(user_id: str) -> dict[str, str]:
 
 
 def delete_zernio_settings(user_id: str) -> None:
+    if _supabase_configured():
+        _supabase_delete("zernio_settings", {"user_id": f"eq.{user_id}"})
+        return
     init_db()
     with _connect() as conn:
         conn.execute("delete from zernio_settings where user_id = ?", (user_id,))
@@ -424,6 +691,22 @@ def save_ai_settings(
     provider: str = "gemini",
     base_url: str = "",
 ) -> None:
+    if _supabase_configured():
+        _supabase_upsert(
+            "ai_settings",
+            [
+                {
+                    "user_id": user_id,
+                    "provider": provider.strip() or "gemini",
+                    "api_key": api_key.strip(),
+                    "model": model.strip(),
+                    "base_url": base_url.strip(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+            ],
+            "user_id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -445,6 +728,23 @@ def save_ai_settings(
 
 
 def get_ai_settings(user_id: str) -> dict[str, str]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "ai_settings",
+            params={
+                "select": "provider,api_key,model,base_url",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return {"provider": "gemini", "api_key": "", "model": "", "base_url": ""}
+        return {
+            "provider": rows[0]["provider"],
+            "api_key": rows[0]["api_key"],
+            "model": rows[0]["model"],
+            "base_url": rows[0]["base_url"],
+        }
     init_db()
     with _connect() as conn:
         row = conn.execute(
@@ -462,12 +762,24 @@ def get_ai_settings(user_id: str) -> dict[str, str]:
 
 
 def delete_ai_settings(user_id: str) -> None:
+    if _supabase_configured():
+        _supabase_delete("ai_settings", {"user_id": f"eq.{user_id}"})
+        return
     init_db()
     with _connect() as conn:
         conn.execute("delete from ai_settings where user_id = ?", (user_id,))
 
 
 def list_ideas(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        return _supabase_select(
+            "ideas",
+            params={
+                "select": "*",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+            },
+        )
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -478,6 +790,34 @@ def list_ideas(user_id: str = "default") -> list[dict[str, Any]]:
 
 
 def save_idea(idea: dict[str, Any], user_id: str = "default") -> None:
+    if _supabase_configured():
+        now = datetime.utcnow().isoformat()
+        existing = _supabase_select(
+            "ideas",
+            params={
+                "select": "created_at",
+                "id": f"eq.{idea['id']}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        _supabase_upsert(
+            "ideas",
+            [
+                {
+                    "user_id": user_id,
+                    "id": idea["id"],
+                    "title": idea.get("title", ""),
+                    "notes": idea.get("notes", ""),
+                    "status": idea.get("status", "inbox"),
+                    "source": idea.get("source", ""),
+                    "created_at": existing[0]["created_at"] if existing else now,
+                    "updated_at": now,
+                }
+            ],
+            "user_id,id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -505,6 +845,11 @@ def save_idea(idea: dict[str, Any], user_id: str = "default") -> None:
 
 
 def delete_idea(idea_id: str, user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_delete(
+            "ideas", {"id": f"eq.{idea_id}", "user_id": f"eq.{user_id}"}
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute("delete from ideas where id = ? and user_id = ?", (idea_id, user_id))
@@ -513,6 +858,19 @@ def delete_idea(idea_id: str, user_id: str = "default") -> None:
 def update_idea_status(
     idea_id: str, status: str, user_id: str = "default"
 ) -> None:
+    if _supabase_configured():
+        response = httpx.patch(
+            _supabase_url("ideas"),
+            headers=_supabase_headers(),
+            params={"id": f"eq.{idea_id}", "user_id": f"eq.{user_id}"},
+            json={
+                "status": status,
+                "updated_at": datetime.utcnow().isoformat(),
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -522,6 +880,15 @@ def update_idea_status(
 
 
 def list_templates(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        return _supabase_select(
+            "content_templates",
+            params={
+                "select": "*",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+            },
+        )
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -532,6 +899,32 @@ def list_templates(user_id: str = "default") -> list[dict[str, Any]]:
 
 
 def save_template(template: dict[str, Any], user_id: str = "default") -> None:
+    if _supabase_configured():
+        now = datetime.utcnow().isoformat()
+        existing = _supabase_select(
+            "content_templates",
+            params={
+                "select": "created_at",
+                "id": f"eq.{template['id']}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        _supabase_upsert(
+            "content_templates",
+            [
+                {
+                    "user_id": user_id,
+                    "id": template["id"],
+                    "name": template.get("name", ""),
+                    "prompt": template.get("prompt", ""),
+                    "created_at": existing[0]["created_at"] if existing else now,
+                    "updated_at": now,
+                }
+            ],
+            "user_id,id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -557,6 +950,12 @@ def save_template(template: dict[str, Any], user_id: str = "default") -> None:
 
 
 def delete_template(template_id: str, user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_delete(
+            "content_templates",
+            {"id": f"eq.{template_id}", "user_id": f"eq.{user_id}"},
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -566,6 +965,15 @@ def delete_template(template_id: str, user_id: str = "default") -> None:
 
 
 def list_campaigns(user_id: str = "default") -> list[dict[str, Any]]:
+    if _supabase_configured():
+        return _supabase_select(
+            "campaigns",
+            params={
+                "select": "*",
+                "user_id": f"eq.{user_id}",
+                "order": "created_at.desc",
+            },
+        )
     init_db()
     with _connect() as conn:
         rows = conn.execute(
@@ -576,6 +984,32 @@ def list_campaigns(user_id: str = "default") -> list[dict[str, Any]]:
 
 
 def save_campaign(campaign: dict[str, Any], user_id: str = "default") -> None:
+    if _supabase_configured():
+        now = datetime.utcnow().isoformat()
+        existing = _supabase_select(
+            "campaigns",
+            params={
+                "select": "created_at",
+                "id": f"eq.{campaign['id']}",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        _supabase_upsert(
+            "campaigns",
+            [
+                {
+                    "user_id": user_id,
+                    "id": campaign["id"],
+                    "name": campaign.get("name", ""),
+                    "goal": campaign.get("goal", ""),
+                    "created_at": existing[0]["created_at"] if existing else now,
+                    "updated_at": now,
+                }
+            ],
+            "user_id,id",
+        )
+        return
     init_db()
     now = datetime.utcnow().isoformat()
     with _connect() as conn:
@@ -601,6 +1035,12 @@ def save_campaign(campaign: dict[str, Any], user_id: str = "default") -> None:
 
 
 def delete_campaign(campaign_id: str, user_id: str = "default") -> None:
+    if _supabase_configured():
+        _supabase_delete(
+            "campaigns",
+            {"id": f"eq.{campaign_id}", "user_id": f"eq.{user_id}"},
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
@@ -610,6 +1050,22 @@ def delete_campaign(campaign_id: str, user_id: str = "default") -> None:
 
 
 def get_brand_settings(user_id: str = "default") -> dict[str, str]:
+    if _supabase_configured():
+        rows = _supabase_select(
+            "brand_settings",
+            params={
+                "select": "voice,audience,keywords",
+                "user_id": f"eq.{user_id}",
+                "limit": "1",
+            },
+        )
+        if not rows:
+            return {"voice": "", "audience": "", "keywords": ""}
+        return {
+            "voice": rows[0]["voice"],
+            "audience": rows[0]["audience"],
+            "keywords": rows[0]["keywords"],
+        }
     init_db()
     with _connect() as conn:
         row = conn.execute(
@@ -628,6 +1084,21 @@ def get_brand_settings(user_id: str = "default") -> dict[str, str]:
 def save_brand_settings(
     user_id: str, voice: str, audience: str, keywords: str
 ) -> None:
+    if _supabase_configured():
+        _supabase_upsert(
+            "brand_settings",
+            [
+                {
+                    "user_id": user_id,
+                    "voice": voice.strip(),
+                    "audience": audience.strip(),
+                    "keywords": keywords.strip(),
+                    "updated_at": datetime.utcnow().isoformat(),
+                }
+            ],
+            "user_id",
+        )
+        return
     init_db()
     with _connect() as conn:
         conn.execute(
