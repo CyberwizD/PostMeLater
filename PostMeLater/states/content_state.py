@@ -687,6 +687,11 @@ class ContentState(rx.State):
             store.save_accounts(accounts, self._owner_id())
             self.accounts = store.list_accounts(self._owner_id())
             self._sync_selected_platforms()
+            valid_account_ids = {account["id"] for account in self.accounts}
+            if self.schedule_account not in valid_account_ids:
+                self.schedule_account = (
+                    self.accounts[0]["id"] if self.accounts else ""
+                )
             if not self.schedule_account and self.accounts:
                 self.schedule_account = self.accounts[0]["id"]
             if accounts:
@@ -891,6 +896,26 @@ class ContentState(rx.State):
         except zernio.ZernioError as exc:
             return rx.toast(str(exc))
         return rx.call_script(f"window.location.assign({json.dumps(auth_url)})")
+
+    @rx.event
+    def disconnect_account(self, account_id: str):
+        api_key = self._zernio_api_key()
+        if not api_key:
+            return rx.toast("Add your Zernio API key before managing accounts.")
+        account = next((a for a in self.accounts if a["id"] == account_id), None)
+        account_label = (
+            account.get("display_name")
+            or account.get("username")
+            or account_id
+            if account
+            else account_id
+        )
+        try:
+            zernio.disconnect_account(account_id, api_key_override=api_key)
+        except zernio.ZernioError as exc:
+            return rx.toast(str(exc))
+        self._sync_accounts_from_zernio()
+        return rx.toast(f"Disconnected {account_label}")
 
     def _account_label(self, account_id: str) -> str:
         for account in self.accounts:
